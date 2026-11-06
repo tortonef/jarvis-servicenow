@@ -1,0 +1,21 @@
+{
+  "resolved": [
+    {"short_description": "VPN won't connect from home, error 809", "description": "Since last night the VPN returns error 809. Internet works fine.", "close_notes": "UDP ports blocked by the home router. Configured SSL gateway vpn-ssl.corp.local, connection OK."},
+    {"short_description": "Outlook keeps asking for password", "description": "After the password change Outlook asks for credentials every 5 minutes.", "close_notes": "Removed MicrosoftOffice16_Data credentials from Credential Manager. Fixed."},
+    {"short_description": "User locked out in AD 3 times today", "description": "The account keeps locking out since Monday's password change.", "close_notes": "Old password saved in the iPhone Mail app. Updated, no further lockouts."},
+    {"short_description": "2nd floor printer not printing, queue stuck", "description": "Documents stay in the queue with an error status.", "close_notes": "Cleared the spool folder and restarted the spooler on the PC. Printing OK."},
+    {"short_description": "SAP: partner not reached", "description": "SAP GUI shows 'partner not reached' on the PRD system.", "close_notes": "VPN was not connected. SAP works after connecting the VPN."},
+    {"short_description": "Laptop disk full, cannot save files", "description": "C: has 200MB free.", "close_notes": "35GB .ost file. Reduced Outlook cache to 6 months and ran disk cleanup: 40GB freed."},
+    {"short_description": "Teams: others can't hear me in meetings", "description": "The headset microphone is not detected by Teams.", "close_notes": "Windows privacy settings were blocking the microphone. Enabled access, fixed."},
+    {"short_description": "BitLocker asking for recovery key", "description": "At startup the PC asks for the BitLocker key.", "close_notes": "Key retrieved from Intune after identity verification. Cause: overnight BIOS update."},
+    {"short_description": "New phone, not receiving MFA notifications", "description": "I changed my smartphone and can't sign in to Office 365.", "close_notes": "Issued a Temporary Access Pass and required MFA re-registration. User registered the new device."},
+    {"short_description": "OneDrive not syncing, red cross", "description": "OneDrive shows a sync error on several files.", "close_notes": "File path too long in a project folder. Renamed the folder, sync resumed."}
+  ],
+  "open": [
+    {"short_description": "GlobalProtect VPN error 809 from hotel", "description": "I'm travelling and the VPN won't connect, it shows error 809. I urgently need to access SAP."},
+    {"short_description": "Outlook stuck on Loading profile", "description": "Since this morning Outlook won't open, it hangs on 'Loading profile'."},
+    {"short_description": "CORP-WIFI Wi-Fi connected but no internet", "description": "The laptop connects to the corporate Wi-Fi but no website loads. It works with a cable."},
+    {"short_description": "Access denied to Marketing shared folder", "description": "I'm new to the marketing team and can't open \\\\fileserver\\marketing."},
+    {"short_description": "Excel crashes opening the monthly report", "description": "The file report_october.xlsx (1.5GB) makes Excel close as soon as I open it."}
+  ]
+}
