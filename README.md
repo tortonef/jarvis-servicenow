@@ -1,6 +1,6 @@
 # Jarvis: an AI assistant for the IT Service Desk on ServiceNow
 
-Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, and posts a **resolution suggestion** for the agent as a work note, right on the ticket.
+Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group.
 
 It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal Developer Instance**. No external database is needed: ServiceNow already is the data source.
 
@@ -23,7 +23,7 @@ flowchart LR
     end
     KB[(Knowledge Base<br/>kb_knowledge)] -->|Table API| R
     HIST[(Resolved<br/>incidents)] -->|Table API| R
-    L -->|work note via Table API| INC
+    L -->|work note + category + group<br/>via Table API| INC
 ```
 
 ```mermaid
@@ -40,7 +40,9 @@ sequenceDiagram
     SN-->>J: KB0010023 Teams audio/video, INC0010009...
     J->>LLM: ticket + articles + past resolutions
     LLM-->>J: probable cause, steps, sources, confidence
-    J->>SN: PATCH incident.work_notes
+    J->>LLM: classify (JSON, allowed categories and groups)
+    LLM-->>J: category + assignment group
+    J->>SN: PATCH work_notes + empty category/group
     Note over SN: The agent sees the suggestion on the ticket
 ```
 
@@ -60,6 +62,12 @@ Agents can also ask Jarvis on any existing ticket. Here it works on one of the P
 
 <p align="center"><img src="docs/images/ask-jarvis.png" width="700" alt="Ask Jarvis button, confirmation message and resulting work note"></p>
 
+### Auto-triage
+
+Jarvis also picks the category and the assignment group. It fills them **only if nobody has set them yet** (category still *Inquiry*, no group), and always writes its choice in the note. Allowed values come from ServiceNow itself: the incident categories and the groups that already handle incidents.
+
+<p align="center"><img src="docs/images/triage.png" width="700" alt="Category and assignment group set by Jarvis, with the triage line in the work note"></p>
+
 ## Design choices
 
 | Choice | Why |
@@ -71,6 +79,7 @@ Agents can also ask Jarvis on any existing ticket. Here it works on one of the P
 | **A single LLM call (RAG)** | More predictable and faster than a tool-calling agent, and fits the free-tier limits. |
 | **Dedicated KB with Instant Publish** | The PDI's "IT" KB has an approval flow: the seed creates "IT Service Desk (Jarvis demo)" and leaves the original untouched. |
 | **OpenAI-compatible API** | Groq, local Ollama, Gemini, OpenAI or Claude: just change `.env`. |
+| **Triage never overrides people** | LLM output is checked against ServiceNow's own categories and groups; invented values are dropped, fields an agent already set are left alone, and a triage failure never blocks the resolution note. |
 | **Work note, not a comment** | The suggestion is visible to agents only, never to the end user. |
 
 ## Quickstart
@@ -129,7 +138,7 @@ Jarvis checks for new incidents every 30 seconds. Use one mode at a time, or new
 python -m unittest -v
 ```
 
-Tests run offline (ServiceNow and the LLM are faked). They check that retrieval finds the right KB article for every demo ticket, and that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON.
+Tests run offline (ServiceNow and the LLM are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, and that triage fills only empty fields and drops invented or malformed LLM output.
 
 ## Layout
 
@@ -147,7 +156,7 @@ tests/             offline tests
 
 - [x] **Step 1**: resolution suggestion from the KB and ticket history
 - [x] **Step 2**: "Ask Jarvis" button on the form and push via async Business Rule
-- [ ] Auto-categorization and assignment group suggestion
+- [x] **Step 3**: auto-categorization and assignment group
 - [ ] Draft KB article generated from resolved incidents that have no article
 - [ ] Teams/Slack notification for P1 tickets
 - [ ] Auto-remediation (e.g. password reset, account unlock) with agent approval

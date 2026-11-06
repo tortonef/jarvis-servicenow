@@ -1,4 +1,5 @@
 """Minimal ServiceNow Table API client."""
+import functools
 import re
 
 import requests
@@ -47,7 +48,20 @@ class Snow:
 
     def new_incidents(self, limit=20):
         return self.query("incident", "active=true^state=1^ORDERBYDESCsys_created_on",
-                          ["sys_id", "number", "short_description", "description"], limit)
+                          ["sys_id", "number", "short_description", "description", "category", "assignment_group"], limit)
+
+    # shortcut: cached for the process lifetime; restart Jarvis after adding categories or groups
+    @functools.cache
+    def triage_options(self):
+        """Incident categories (value -> label) and the groups that already handle incidents (name -> sys_id)."""
+        cats = {c["value"]: c["label"] for c in self.query(
+            "sys_choice", "name=incident^element=category^inactive=false^language=en", ["value", "label"], 100)}
+        r = self.http.get(self.base.replace("/table/", "/stats/") + "incident", timeout=30, params={
+            "sysparm_group_by": "assignment_group", "sysparm_count": "true", "sysparm_query": "assignment_groupISNOTEMPTY"})
+        r.raise_for_status()
+        ids = ",".join(x["groupby_fields"][0]["value"] for x in r.json()["result"])
+        groups = {g["name"]: g["sys_id"] for g in self.query("sys_user_group", f"sys_idIN{ids}", ["name", "sys_id"], 100)}
+        return cats, groups
 
     def get_incident(self, sys_id):
         return self.first("incident", f"sys_id={sys_id}")
@@ -73,5 +87,5 @@ class Snow:
         r.raise_for_status()
         return r.json()["result"]
 
-    def add_work_note(self, sys_id, note):
-        self.update("incident", sys_id, {"work_notes": note})
+    def add_work_note(self, sys_id, note, fields=None):
+        self.update("incident", sys_id, {"work_notes": note, **(fields or {})})

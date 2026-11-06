@@ -17,7 +17,7 @@ RESOLVED = [{"number": f"INC00100{i:02}", **r} for i, r in enumerate(INCIDENTS["
 class FakeSnow:
     """Same ranking as the real client, over local seed data instead of the Table API."""
     def __init__(self):
-        self.notes = {}
+        self.notes, self.fields = {}, {}
 
     def search_kb(self, text):
         return rank(KB, keywords(text), ["short_description", "text"])
@@ -25,18 +25,22 @@ class FakeSnow:
     def similar_resolved(self, text):
         return rank(RESOLVED, keywords(text), ["short_description", "description"])
 
-    def add_work_note(self, sys_id, note):
-        self.notes[sys_id] = note
+    def triage_options(self):
+        return {"network": "Network", "inquiry": "Inquiry"}, {"Network": "gid-net", "Service Desk": "gid-sd"}
+
+    def add_work_note(self, sys_id, note, fields=None):
+        self.notes[sys_id], self.fields[sys_id] = note, fields or {}
 
 
 class FakeLLM:
-    def __init__(self):
-        self.prompts = []
+    def __init__(self, triage_json='{"category": "Network", "assignment_group": "Network"}'):
+        self.prompts, self.triage_json = [], triage_json
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    def _create(self, model, messages, temperature):
+    def _create(self, model, messages, temperature, response_format=None):
         self.prompts.append(messages[1]["content"])
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Probable cause: test"))])
+        content = self.triage_json if response_format else "Probable cause: test"
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
 class TestJarvis(unittest.TestCase):
@@ -61,6 +65,31 @@ class TestJarvis(unittest.TestCase):
 
     def test_rank_drops_non_matching(self):
         self.assertEqual(rank([{"t": "abc"}], ["zzz"], ["t"]), [])
+
+    def run_triage(self, triage_json, **incident_fields):
+        snow = FakeSnow()
+        inc = {"sys_id": "abc", "number": "INC1", "category": "inquiry", "assignment_group": "", **INCIDENTS["open"][2], **incident_fields}
+        handle(inc, snow, FakeLLM(triage_json), "test-model")
+        return snow.fields["abc"], snow.notes["abc"]
+
+    def test_triage_fills_empty_fields(self):
+        fields, note = self.run_triage('{"category": "Network", "assignment_group": "Network"}')
+        self.assertEqual(fields, {"category": "network", "assignment_group": "gid-net"})
+        self.assertIn("Triage: category Network (set), assignment group Network (set)", note)
+
+    def test_triage_never_overwrites_agent_choices(self):
+        fields, note = self.run_triage('{"category": "network", "assignment_group": "Network"}',
+                                       category="hardware", assignment_group={"value": "gid-hw"})
+        self.assertEqual(fields, {})
+        self.assertIn("assignment group Network (suggested, already filled)", note)
+
+    def test_triage_drops_invented_or_broken_output(self):
+        for bad in ['{"category": "Plumbing", "assignment_group": "Ghostbusters"}', "not json", "[1]",
+                    '{"category": 5, "assignment_group": ["Network"]}']:
+            fields, note = self.run_triage(bad)
+            self.assertEqual(fields, {}, bad)
+            self.assertNotIn("Triage:", note)
+            self.assertTrue(note.startswith(HEADER))  # resolution note still posted
 
 
 if __name__ == "__main__":
