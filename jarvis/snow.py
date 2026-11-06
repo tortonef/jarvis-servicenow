@@ -49,6 +49,9 @@ class Snow:
         return self.query("incident", "active=true^state=1^ORDERBYDESCsys_created_on",
                           ["sys_id", "number", "short_description", "description"], limit)
 
+    def get_incident(self, sys_id):
+        return self.first("incident", f"sys_id={sys_id}")
+
     def _search(self, table, base_query, fields, search_fields, text, top):
         # shortcut: LIKE match + local keyword ranking; switch to embeddings/vector search when the KB has thousands of articles
         words = keywords(text)
