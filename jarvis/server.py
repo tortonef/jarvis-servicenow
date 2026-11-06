@@ -61,6 +61,9 @@ def main():
                 print(f"{sys_id}: failed: {e}")
         return work
 
+    if snow.semantic:  # embed KB and history now, not on the first ticket
+        print("Building the semantic index...")
+        snow.search_kb("warm up"), snow.kb_candidates("warm up"), snow.similar_resolved("warm up")
     port = int(os.getenv("JARVIS_PORT", "8787"))
     print(f"Jarvis listening on http://127.0.0.1:{port} (/suggest, /kb-draft, /remediate)")
     make_server(port, token, {"/suggest": job(handle), "/kb-draft": job(handle_resolved), "/remediate": job(handle_remediation)}).serve_forever()

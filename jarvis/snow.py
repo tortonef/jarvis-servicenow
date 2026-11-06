@@ -27,7 +27,8 @@ APPROVAL = "Approved Jarvis action: unlock"
 
 
 class Snow:
-    def __init__(self, instance, user, password):
+    def __init__(self, instance, user, password, semantic=None):
+        self.semantic = semantic  # a SemanticIndex, or None for keyword search
         self.base = instance.rstrip("/") + "/api/now/table/"
         self.http = requests.Session()
         self.http.auth = (user, password)
@@ -78,7 +79,11 @@ class Snow:
         return self.first("incident", f"sys_id={sys_id}")
 
     def _search(self, table, base_query, fields, search_fields, text, top):
-        # shortcut: LIKE match + local keyword ranking; switch to embeddings/vector search when the KB has thousands of articles
+        if self.semantic:
+            # shortcut: embeds the 500 most recent records in memory; use a vector DB or ServiceNow AI Search beyond that
+            records = self.query(table, f"{base_query}^ORDERBYDESCsys_updated_on",
+                                 fields + ["sys_id", "sys_updated_on"], limit=500)
+            return self.semantic.top(text, records, search_fields, top)
         words = keywords(text)
         if not words:
             return []

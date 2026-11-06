@@ -62,7 +62,7 @@ def main():
     token = os.environ.get("JARVIS_TOKEN", "")
     if len(token) < 16:
         raise SystemExit("Set JARVIS_TOKEN (at least 16 random characters) in .env first.")
-    snow = snow_from_env()
+    snow = snow_from_env("keyword")  # no search here: skip loading the embedding model
     upsert(snow, "sys_properties", "name=jarvis.endpoint",
            {"name": "jarvis.endpoint", "value": sys.argv[1].rstrip("/"), "type": "string",
             "description": "Public URL of the Jarvis server"})

@@ -8,7 +8,7 @@ HERE = Path(__file__).parent
 
 
 def main():
-    snow = snow_from_env()
+    snow = snow_from_env("keyword")  # no search here: skip loading the embedding model
     # Own KB with "Instant Publish": the stock "IT" KB uses an approval flow that keeps API-created articles in draft
     flow = snow.first("sys_hub_flow", "name=Knowledge - Instant Publish")
     kb_base = snow.first("kb_knowledge_base", f"title={KB_TITLE}") or snow.create(

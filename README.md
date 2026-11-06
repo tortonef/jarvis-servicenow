@@ -18,7 +18,7 @@ flowchart LR
     BTN --> CL
     CL -->|HTTPS POST /suggest, /kb-draft,<br/>/remediate: sys_id + token| S
     subgraph Jarvis [Jarvis - Python]
-        S[HTTP server] --> R[Retrieval<br/>KB + similar tickets]
+        S[HTTP server] --> R[Semantic retrieval<br/>local embeddings]
         R --> L[LLM<br/>Groq / GPT-OSS 120B]
     end
     KB[(Knowledge Base<br/>kb_knowledge)] -->|Table API| R
@@ -36,8 +36,8 @@ sequenceDiagram
     J-->>SN: 202 Accepted
     J->>SN: GET incident by sys_id
     SN-->>J: INC0010019 "Teams: nobody can hear me in meetings"
-    J->>SN: GET kb_knowledge (keywords)
-    J->>SN: GET resolved incidents (keywords)
+    J->>SN: GET kb_knowledge + resolved incidents
+    Note over J: rank by meaning (cached local embeddings)
     SN-->>J: KB0010023 Teams audio/video, INC0010009...
     J->>LLM: ticket + articles + past resolutions
     LLM-->>J: probable cause, steps, sources, confidence
@@ -87,12 +87,30 @@ When a ticket is about a locked-out account, Jarvis does more than explain the f
 
 > The PDI has no Active Directory, so the demo unlocks the ServiceNow user (`sys_user.locked_out`). In production the same step would call Active Directory or Entra ID.
 
+### Semantic search
+
+Users rarely use the words of the KB title. Jarvis ranks articles and past tickets by meaning, with a small embedding model that runs locally ([fastembed](https://github.com/qdrant/fastembed), `BAAI/bge-small-en-v1.5`, no API key). Vectors are cached and only new or edited records are embedded; the server builds the index at startup (about 20 seconds on the PDI), after which a note takes about 5 seconds.
+
+On 10 demo tickets written the way users write them (`python -m tests.eval_search`):
+
+| Ticket | Right article | Keyword | Semantic |
+|---|---|:---:|:---:|
+| PC asks for a 48-digit code when I turn it on | BitLocker | ✗ | ✓ |
+| My laptop takes ages to boot and the fan is always loud | Slow laptop | ✗ | ✓ |
+| I need permission to open the finance team's network drive | Shared folder access | ✗ | ✓ |
+| I press print and nothing comes out, documents wait forever | Printer queue | ✗ | ✓ |
+| Big workbook makes the spreadsheet program shut down | Excel crashes | ✗ | ✓ |
+| 5 more tickets that share words with the article | | ✓ | ✓ |
+| **Right article first** | | **5/10** | **10/10** |
+
+An article scores the best of its title and its full text: scoring the full text alone gave 8/10, because long bodies dilute the meaning. That choice was made on these same 10 tickets, so treat 10/10 as optimistic. Off-topic tickets ("the coffee machine is broken") get no articles at all. Set `SEARCH=keyword` to run without the model.
+
 ## Design choices
 
 | Choice | Why |
 |---|---|
 | **No external database** | Incidents, KB and history already live in ServiceNow. Jarvis does not duplicate data. |
-| **Keyword search + local ranking** | Good enough for tens or hundreds of articles. With thousands, move to embeddings + a vector DB (pgvector/Chroma). |
+| **Local embeddings, in memory** | Free, private (ticket text never leaves the machine for search) and fast for the 500 most recent records per table. With tens of thousands, move the vectors to a vector DB (pgvector/Chroma) or use ServiceNow AI Search. |
 | **Push, with polling as fallback** | An async Business Rule and the *Ask Jarvis* button call Jarvis right away. Where ServiceNow cannot reach Jarvis, `jarvis.main` polls instead (no tunnel, nothing installed in ServiceNow). |
 | **Untrusted caller** | The Jarvis endpoint requires a shared token, accepts only a 32-hex `sys_id` and re-reads the incident from ServiceNow; it never trusts ticket text sent in the request. |
 | **A single LLM call (RAG)** | More predictable and faster than a tool-calling agent, and fits the free-tier limits. |
@@ -159,18 +177,19 @@ Jarvis checks for new incidents every 30 seconds. Use one mode at a time, or new
 python -m unittest -v
 ```
 
-Tests run offline (ServiceNow and the LLM are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval.
+Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval. The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
 
 ## Layout
 
 ```
 jarvis/snow.py     ServiceNow REST client + search and ranking
-jarvis/agent.py    prompt and LLM call
+jarvis/agent.py    prompts and LLM calls
+jarvis/semantic.py semantic ranking with cached local embeddings
 jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
 seed/              demo data, KB publish script, install_snow.py for the ServiceNow side
-tests/             offline tests
+tests/             offline tests + eval_search.py (keyword vs semantic)
 ```
 
 ## Roadmap
@@ -181,4 +200,4 @@ tests/             offline tests
 - [x] **Step 4**: draft KB article from resolved incidents whose fix is not documented yet
 - [ ] Teams/Slack notification for P1 tickets
 - [x] **Step 5**: auto-remediation with agent approval (account unlock)
-- [ ] Semantic search with embeddings as the KB grows
+- [x] **Step 6**: semantic search with local embeddings
