@@ -1,6 +1,6 @@
 # Jarvis: an AI assistant for the IT Service Desk on ServiceNow
 
-Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group. When a ticket is resolved, it turns the fix into a **draft KB article**, so the knowledge base grows with every solved problem.
+Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group. When a ticket is resolved, it turns the fix into a **draft KB article**, so the knowledge base grows with every solved problem. For known fixes it can also **act**: it proposes a remediation (unlocking a locked-out account), an agent approves it with one click, and Jarvis carries it out.
 
 It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal Developer Instance**. No external database is needed: ServiceNow already is the data source.
 
@@ -13,10 +13,10 @@ It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal 
 ```mermaid
 flowchart LR
     U([End user]) -->|opens ticket| INC[(ServiceNow<br/>Incident)]
-    A([Service Desk agent]) -->|clicks Ask Jarvis| BTN[UI Action]
+    A([Service Desk agent]) -->|Ask Jarvis /<br/>approve unlock| BTN[UI Actions]
     INC -->|async Business Rules<br/>on create / on resolve| CL[Script Include<br/>JarvisClient]
     BTN --> CL
-    CL -->|HTTPS POST /suggest or /kb-draft<br/>sys_id + token| S
+    CL -->|HTTPS POST /suggest, /kb-draft,<br/>/remediate: sys_id + token| S
     subgraph Jarvis [Jarvis - Python]
         S[HTTP server] --> R[Retrieval<br/>KB + similar tickets]
         R --> L[LLM<br/>Groq / GPT-OSS 120B]
@@ -79,6 +79,14 @@ The draft Jarvis wrote from the agent's notes, linked back to the source inciden
 
 <p align="center"><img src="docs/images/kb-draft.png" width="700" alt="Draft KB article written by Jarvis"></p>
 
+### Auto-remediation with approval
+
+When a ticket is about a locked-out account, Jarvis does more than explain the fix. The model flags the intent, and Jarvis checks the data: is the caller really locked out in ServiceNow? Only then does it propose the action. An agent approves with the **Unlock account (Jarvis)** button, which is shown only while the caller is locked and records the approval as a work note in the agent's name. Jarvis re-checks the approval and the lockout, unlocks the account and resolves the ticket, which in turn triggers the KB check:
+
+<p align="center"><img src="docs/images/remediation.png" width="760" alt="Jarvis proposes an unlock, the agent approves, Jarvis unlocks and resolves"></p>
+
+> The PDI has no Active Directory, so the demo unlocks the ServiceNow user (`sys_user.locked_out`). In production the same step would call Active Directory or Entra ID.
+
 ## Design choices
 
 | Choice | Why |
@@ -92,6 +100,7 @@ The draft Jarvis wrote from the agent's notes, linked back to the source inciden
 | **OpenAI-compatible API** | Groq, local Ollama, Gemini, OpenAI or Claude: just change `.env`. |
 | **Triage never overrides people** | LLM output is checked against ServiceNow's own categories and groups; invented values are dropped, fields an agent already set are left alone, and a triage failure never blocks the resolution note. |
 | **KB drafts need a human** | Jarvis only creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
+| **Actions need a recorded human approval** | The model can only flag an intent; the proposal requires the data to agree, and `/remediate` acts only if it finds the agent's approval note and the account is still locked. A call without approval is refused even with a valid token. |
 | **Work note, not a comment** | The suggestion is visible to agents only, never to the end user. |
 
 ## Quickstart
@@ -134,7 +143,7 @@ Then install the ServiceNow side (system properties, `JarvisClient` Script Inclu
 python -m seed.install_snow https://<your-tunnel>.trycloudflare.com
 ```
 
-Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Resolve an incident with resolution notes to get a KB draft. Quick-tunnel URLs change on every restart, so re-run `install_snow` with the new URL.
+Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Resolve an incident with resolution notes to get a KB draft. For auto-remediation, `seed` creates the demo user **Alex Rivera** in locked-out state (re-run it to lock him again): open an incident with Alex as caller saying the account is locked. Quick-tunnel URLs change on every restart, so re-run `install_snow` with the new URL.
 
 ### Polling mode (no tunnel)
 
@@ -150,7 +159,7 @@ Jarvis checks for new incidents every 30 seconds. Use one mode at a time, or new
 python -m unittest -v
 ```
 
-Tests run offline (ServiceNow and the LLM are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, and that KB drafts are escaped, linked to the incident and skipped when the fix is already documented.
+Tests run offline (ServiceNow and the LLM are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval.
 
 ## Layout
 
@@ -171,5 +180,5 @@ tests/             offline tests
 - [x] **Step 3**: auto-categorization and assignment group
 - [x] **Step 4**: draft KB article from resolved incidents whose fix is not documented yet
 - [ ] Teams/Slack notification for P1 tickets
-- [ ] Auto-remediation (e.g. password reset, account unlock) with agent approval
+- [x] **Step 5**: auto-remediation with agent approval (account unlock)
 - [ ] Semantic search with embeddings as the KB grows

@@ -4,10 +4,11 @@ import json
 import re
 
 TRIAGE = """Classify an IT incident for the Service Desk. Reply with JSON only:
-{{"category": "<one category>", "assignment_group": "<one group>"}}
+{{"category": "<one category>", "assignment_group": "<one group>", "action": "unlock_account" or null}}
 Categories: {cats}
 Assignment groups: {groups}
-Pick the group that would fix the issue; use "Service Desk" only for generic or unclear tickets."""
+Pick the group that would fix the issue; use "Service Desk" only for generic or unclear tickets.
+Set "action" to "unlock_account" only if the user reports that their own account is locked out; otherwise null."""
 SYSTEM = """You are Jarvis, an assistant for IT Service Desk agents.
 You receive a ticket, some Knowledge Base articles and similar resolved tickets.
 Reply in English, in plain text (no markdown), with this structure:
@@ -70,6 +71,8 @@ def triage(incident, options, llm, model):
         result["category"] = by_name[cat]
     if group in groups:
         result["assignment_group"] = group
+    if out.get("action") == "unlock_account":
+        result["action"] = "unlock_account"
     return result
 
 

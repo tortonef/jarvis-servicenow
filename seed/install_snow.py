@@ -1,5 +1,6 @@
 """Install the ServiceNow side of push mode: system properties, a Script Include, the "Ask Jarvis" button and async
-Business Rules on new incidents (suggestion + triage) and on resolved incidents (KB draft). Safe to re-run (updates records by name).
+Business Rules on new incidents (suggestion + triage) and on resolved incidents (KB draft), plus the
+"Unlock account (Jarvis)" approval button. Safe to re-run (updates records by name).
 
 Usage: python -m seed.install_snow https://<public-url-of-jarvis-server>
 """
@@ -7,6 +8,7 @@ import os
 import sys
 
 from jarvis.config import snow_from_env
+from jarvis.snow import APPROVAL
 
 CLIENT = """var JarvisClient = Class.create();
 JarvisClient.prototype = {
@@ -34,6 +36,13 @@ action.setRedirectURL(current);"""
 RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id);
 })(current, previous);"""
+
+# The agent's click is the approval: recorded as a work note in their name, then Jarvis is asked to act
+UNLOCK_BUTTON = """current.work_notes = '""" + APPROVAL + """ the account of ' + current.caller_id.getDisplayValue() + '.';
+current.update();
+new JarvisClient().ask(current.sys_id, '/remediate');
+gs.addInfoMessage('Approved: Jarvis is unlocking the account.');
+action.setRedirectURL(current);"""
 
 RESOLVED_RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id, '/kb-draft');
@@ -70,6 +79,11 @@ def main():
     upsert(snow, "sys_script", "collection=incident^name=Jarvis: suggest on new incident",
            {"name": "Jarvis: suggest on new incident", "collection": "incident", "when": "async",
             "action_insert": "true", "advanced": "true", "active": "true", "order": "100", "script": RULE})
+    upsert(snow, "sys_ui_action", "table=incident^name=Unlock account (Jarvis)",
+           {"name": "Unlock account (Jarvis)", "table": "incident", "action_name": "jarvis_unlock", "script": UNLOCK_BUTTON,
+            "condition": "current.active && !current.caller_id.nil() && current.caller_id.locked_out == true",
+            "form_button": "true", "workspace_form_button": "true", "client": "false", "active": "true", "order": "110",
+            "hint": "Approve Jarvis's proposal to unlock the caller's account"})
     upsert(snow, "sys_script", "collection=incident^name=Jarvis: draft KB on resolve",
            {"name": "Jarvis: draft KB on resolve", "collection": "incident", "when": "async",
             "action_update": "true", "filter_condition": "stateCHANGESTO6^EQ", "advanced": "true", "active": "true",

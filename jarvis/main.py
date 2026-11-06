@@ -28,13 +28,29 @@ def apply_triage(incident, suggested, options):
     return fields, ("\n\nTriage: " + ", ".join(parts)) if parts else ""
 
 
+def locked_caller(incident, snow):
+    """The incident's caller, but only if their account is really locked out in ServiceNow."""
+    ref = incident.get("caller_id")
+    user = snow.get_user(ref["value"]) if isinstance(ref, dict) and ref.get("value") else None
+    return user if user and user.get("locked_out") == "true" else None
+
+
+def propose_remediation(incident, suggested, snow):
+    """The model only flags the intent; the data must confirm it before Jarvis proposes anything."""
+    user = locked_caller(incident, snow) if suggested.get("action") == "unlock_account" else None
+    return (f"\n\nProposed action: unlock the account of {user['name']} (currently locked out). "
+            "An agent can approve it with the 'Unlock account (Jarvis)' button.") if user else ""
+
+
 def handle(incident, snow, llm, model):
     text = f"{incident['short_description']} {incident.get('description', '')}"
     kb, similar = snow.search_kb(text), snow.similar_resolved(text)
     note = suggest(incident, kb, similar, llm, model)
     try:
         options = snow.triage_options()
-        fields, line = apply_triage(incident, triage(incident, options, llm, model), options)
+        suggested = triage(incident, options, llm, model)
+        fields, line = apply_triage(incident, suggested, options)
+        line += propose_remediation(incident, suggested, snow)
     except Exception as e:  # triage is a bonus: never lose the resolution note because of it
         print(f"{incident['number']}: triage failed: {e}")
         fields, line = {}, ""
@@ -61,6 +77,21 @@ def handle_resolved(incident, snow, llm, model):
                 "It is a draft: review and publish it so the next agent finds the fix.")
     snow.add_work_note(incident["sys_id"], note)
     print(f"{incident['number']}: {note.splitlines()[0]}")
+
+
+def handle_remediation(incident, snow, llm=None, model=None):
+    """Run the agent-approved unlock. Re-checks approval and current state; never trusts whoever called the endpoint."""
+    if not snow.approved(incident["sys_id"]):
+        return print(f"{incident['number']}: no recorded agent approval, refusing to act")
+    user = locked_caller(incident, snow)
+    if not user:
+        return snow.add_work_note(incident["sys_id"], "[Jarvis] Nothing to do: the caller's account is not locked out.")
+    # shortcut: the PDI has no Active Directory, so the ServiceNow user flag stands in for it; call AD/Entra ID here in production
+    snow.update("sys_user", user["sys_id"], {"locked_out": "false"})
+    snow.add_work_note(incident["sys_id"], f"[Jarvis] Remediation done: unlocked the account of {user['name']}. Resolving the incident.",
+                       {"state": "6", "close_code": "Workaround provided",
+                        "close_notes": f"Account of {user['name']} unlocked by Jarvis after agent approval. The user can sign in again."})
+    print(f"{incident['number']}: unlocked {user['name']}")
 
 
 def main():

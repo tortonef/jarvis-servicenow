@@ -22,6 +22,10 @@ def rank(records, words, fields, top=3):
     return [r for s, r in scored if s > 0][:top]
 
 
+# Prefix of the work note the "Unlock account (Jarvis)" button writes: Jarvis acts only after finding it
+APPROVAL = "Approved Jarvis action: unlock"
+
+
 class Snow:
     def __init__(self, instance, user, password):
         self.base = instance.rstrip("/") + "/api/now/table/"
@@ -48,7 +52,7 @@ class Snow:
 
     def new_incidents(self, limit=20):
         return self.query("incident", "active=true^state=1^ORDERBYDESCsys_created_on",
-                          ["sys_id", "number", "short_description", "description", "category", "assignment_group"], limit)
+                          ["sys_id", "number", "short_description", "description", "category", "assignment_group", "caller_id"], limit)
 
     # shortcut: cached for the process lifetime; restart Jarvis after adding categories or groups
     @functools.cache
@@ -62,6 +66,13 @@ class Snow:
         ids = ",".join(x["groupby_fields"][0]["value"] for x in r.json()["result"])
         groups = {g["name"]: g["sys_id"] for g in self.query("sys_user_group", f"sys_idIN{ids}", ["name", "sys_id"], 100)}
         return cats, groups
+
+    def get_user(self, sys_id):
+        return self.first("sys_user", f"sys_id={sys_id}")
+
+    def approved(self, incident_sys_id):
+        return bool(self.first("sys_journal_field",
+                               f"element=work_notes^element_id={incident_sys_id}^valueSTARTSWITH{APPROVAL}"))
 
     def get_incident(self, sys_id):
         return self.first("incident", f"sys_id={sys_id}")

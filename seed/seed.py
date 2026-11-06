@@ -25,6 +25,13 @@ def main():
         # ServiceNow ignores workflow_state changes via the Table API; publishing must run server-side
         print(f"\n{drafts} KB articles are drafts. Paste seed/publish_kb.js into System Definition > Scripts - Background and run it.\n")
 
+    # Demo user for auto-remediation: (re)locked on every run so the lockout scenario can be replayed
+    user = {"user_name": "alex.rivera", "first_name": "Alex", "last_name": "Rivera", "email": "alex.rivera@example.com",
+            "locked_out": "true"}
+    rec = snow.first("sys_user", "user_name=alex.rivera")
+    rec = snow.update("sys_user", rec["sys_id"], {"locked_out": "true"}) if rec else snow.create("sys_user", user)
+    print("User", rec["user_name"], "locked out")
+
     incidents = json.loads((HERE / "incidents.json").read_text(encoding="utf-8"))
     for inc in incidents["resolved"]:
         if snow.first("incident", f"short_description={inc['short_description']}"):
