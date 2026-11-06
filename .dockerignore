@@ -1,0 +1,6 @@
+.env
+.git
+state.json
+docs
+tests
+**/__pycache__

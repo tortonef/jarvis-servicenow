@@ -16,11 +16,18 @@ def snow_from_env(search=None):
     mode = search or os.getenv("SEARCH", "semantic")
     if mode not in ("semantic", "keyword"):
         raise SystemExit(f"SEARCH must be 'semantic' or 'keyword', not {mode!r}")
-    semantic = None
+    db = semantic = None
+    if os.getenv("DATABASE_URL"):  # optional: without it Jarvis keeps vectors in memory and skips the audit trail
+        from jarvis.db import connect
+        db = connect(os.environ["DATABASE_URL"])
     if mode == "semantic":
-        from jarvis.semantic import SemanticIndex
-        semantic = SemanticIndex()
-    return Snow(os.environ["SNOW_INSTANCE"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"], semantic)
+        from jarvis.semantic import MODEL, SemanticIndex
+        store = None
+        if db:
+            from jarvis.db import VectorStore
+            store = VectorStore(db, MODEL)
+        semantic = SemanticIndex(store=store)
+    return Snow(os.environ["SNOW_INSTANCE"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"], semantic, db)
 
 
 def llm_from_env():

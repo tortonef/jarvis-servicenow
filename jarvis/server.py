@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SYS_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -19,7 +20,7 @@ def parse_sys_id(body):
     return sys_id if isinstance(sys_id, str) and SYS_ID.match(sys_id) else None
 
 
-def make_server(port, token, routes):
+def make_server(port, token, routes, host="127.0.0.1"):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             length = int(self.headers.get("Content-Length") or 0)
@@ -38,7 +39,23 @@ def make_server(port, token, routes):
             self.send_response(202)
             self.end_headers()
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    return ThreadingHTTPServer((host, port), Handler)
+
+
+def register_tunnel(snow, token, metrics_url, tries=60):
+    """Read the quick tunnel's public URL from cloudflared and point ServiceNow at it (URL changes on every restart)."""
+    import requests
+    from seed.install_snow import install
+    for _ in range(tries):
+        try:
+            host = requests.get(f"{metrics_url}/quicktunnel", timeout=5).json().get("hostname")
+        except (requests.RequestException, ValueError):
+            host = None
+        if host:
+            print(f"Tunnel: https://{host}")
+            return install(snow, f"https://{host}", token)
+        time.sleep(2)
+    print("Tunnel URL not available: ServiceNow still points to the previous endpoint")
 
 
 def main():
@@ -64,9 +81,13 @@ def main():
     if snow.semantic:  # embed KB and history now, not on the first ticket
         print("Building the semantic index...")
         snow.search_kb("warm up"), snow.kb_candidates("warm up"), snow.similar_resolved("warm up")
-    port = int(os.getenv("JARVIS_PORT", "8787"))
-    print(f"Jarvis listening on http://127.0.0.1:{port} (/suggest, /kb-draft, /remediate)")
-    make_server(port, token, {"/suggest": job(handle), "/kb-draft": job(handle_resolved), "/remediate": job(handle_remediation)}).serve_forever()
+    port, host = int(os.getenv("JARVIS_PORT", "8787")), os.getenv("JARVIS_HOST", "127.0.0.1")
+    server = make_server(port, token, {"/suggest": job(handle), "/kb-draft": job(handle_resolved),
+                                       "/remediate": job(handle_remediation)}, host)
+    print(f"Jarvis listening on http://{host}:{port} (/suggest, /kb-draft, /remediate)")
+    if os.getenv("JARVIS_TUNNEL_METRICS"):  # docker compose: register the tunnel once the socket is open
+        threading.Thread(target=register_tunnel, args=(snow, token, os.environ["JARVIS_TUNNEL_METRICS"]), daemon=True).start()
+    server.serve_forever()
 
 
 if __name__ == "__main__":

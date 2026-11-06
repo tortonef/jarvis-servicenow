@@ -56,6 +56,8 @@ def handle(incident, snow, llm, model):
         print(f"{incident['number']}: triage failed: {e}")
         fields, line = {}, ""
     snow.add_work_note(incident["sys_id"], note + line, fields)
+    snow.audit(incident["number"], "answer", [a["number"] for a in kb] + [i["number"] for i in similar],
+               {"triage": fields, "proposal": bool(line and "Proposed action" in line)})
     if incident.get("priority") == "1":
         try:
             if notify_p1(incident, note, snow.instance):
@@ -77,9 +79,11 @@ def handle_resolved(incident, snow, llm, model):
         return print(f"{incident['number']}: unusable KB draft from the model, skipped")
     if "covered_by" in result:
         note = f"[Jarvis] KB check: this fix is already documented in {result['covered_by']}. No new article needed."
+        snow.audit(incident["number"], "kb_covered", [result["covered_by"]])
     else:
         art = snow.create("kb_knowledge", {"short_description": result["title"], "text": result["text"],
                                            "kb_knowledge_base": snow.kb_base(KB_TITLE)["sys_id"], "source": incident["sys_id"]})
+        snow.audit(incident["number"], "kb_draft", [art["number"]], {"title": result["title"]})
         note = (f"[Jarvis] Drafted knowledge article {art['number']} \"{result['title']}\" from this resolution.\n"
                 "It is a draft: review and publish it so the next agent finds the fix.")
     snow.add_work_note(incident["sys_id"], note)
@@ -98,6 +102,7 @@ def handle_remediation(incident, snow, llm=None, model=None):
     snow.add_work_note(incident["sys_id"], f"[Jarvis] Remediation done: unlocked the account of {user['name']}. Resolving the incident.",
                        {"state": "6", "close_code": "Workaround provided",
                         "close_notes": f"Account of {user['name']} unlocked by Jarvis after agent approval. The user can sign in again."})
+    snow.audit(incident["number"], "remediation", detail={"action": "unlock_account", "user": user["name"]})
     print(f"{incident['number']}: unlocked {user['name']}")
 
 

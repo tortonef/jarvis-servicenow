@@ -1,0 +1,41 @@
+# docker compose up: PostgreSQL + pgvector, the Jarvis server and a Cloudflare quick tunnel.
+# Jarvis reads the tunnel's public URL at startup and points ServiceNow at it.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: jarvis
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PORT:-55432}:5432"   # local only (55432: 5432 is often taken by a local Postgres)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis -d jarvis"]
+      interval: 5s
+      retries: 10
+
+  jarvis:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://jarvis:${POSTGRES_PASSWORD}@db:5432/jarvis
+      JARVIS_TUNNEL_METRICS: http://tunnel:2000
+    volumes:
+      - models:/models          # embedding model downloaded once
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://jarvis:8787
+    depends_on:
+      - jarvis
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  models:

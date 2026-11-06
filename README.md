@@ -151,9 +151,21 @@ python -m seed.seed
 
 ServiceNow does not allow publishing KB articles through the Table API: open **System Definition > Scripts - Background**, paste [`seed/publish_kb.js`](seed/publish_kb.js) and click *Run script*.
 
-### Push mode (recommended)
+### Run with Docker (recommended)
 
-ServiceNow must reach Jarvis over HTTPS. For a demo, a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) is enough (no account needed). Start the server and the tunnel in two terminals:
+Requires Docker. Set `POSTGRES_PASSWORD` in `.env`, then:
+
+```bash
+docker compose up -d --build
+```
+
+This starts three containers: **PostgreSQL + pgvector** (embedding cache and an audit trail of every suggestion), the **Jarvis server**, and a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account needed). At startup Jarvis reads the tunnel's public URL and installs the ServiceNow side with it: system properties, `JarvisClient` Script Include, *Ask Jarvis* and *Unlock account (Jarvis)* buttons, async Business Rules on create and on resolve. Quick-tunnel URLs change on every restart; Jarvis re-registers each time, so there is nothing to do by hand.
+
+The first start embeds the KB and the ticket history (about 30 seconds on the PDI); later starts load the vectors from PostgreSQL (about 3 seconds).
+
+Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Resolve an incident with resolution notes to get a KB draft. For auto-remediation, `seed` creates the demo user **Alex Rivera** in locked-out state (re-run it to lock him again): open an incident with Alex as caller saying the account is locked.
+
+### Push mode without Docker
 
 ```bash
 python -m jarvis.server
@@ -163,13 +175,11 @@ python -m jarvis.server
 cloudflared tunnel --url http://127.0.0.1:8787
 ```
 
-Then install the ServiceNow side (system properties, `JarvisClient` Script Include, *Ask Jarvis* button, async Business Rules on create and on resolve) with the tunnel URL:
-
 ```bash
 python -m seed.install_snow https://<your-tunnel>.trycloudflare.com
 ```
 
-Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Resolve an incident with resolution notes to get a KB draft. For auto-remediation, `seed` creates the demo user **Alex Rivera** in locked-out state (re-run it to lock him again): open an incident with Alex as caller saying the account is locked. Quick-tunnel URLs change on every restart, so re-run `install_snow` with the new URL.
+Without `DATABASE_URL` Jarvis keeps vectors in memory and skips the audit trail.
 
 ### Polling mode (no tunnel)
 
@@ -185,6 +195,8 @@ Jarvis checks for new incidents every 30 seconds. Use one mode at a time, or new
 python -m unittest -v
 ```
 
+The database tests run against a real PostgreSQL when `TEST_DATABASE_URL` is set (with Docker: `postgresql://jarvis:<POSTGRES_PASSWORD>@127.0.0.1:55432/jarvis`); CI runs everything on every push.
+
 Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval. Slack alerts are tested for P1-only sending, escaping and failure handling (no real HTTP calls). The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
 
 ## Layout
@@ -194,6 +206,8 @@ jarvis/snow.py     ServiceNow REST client + search and ranking
 jarvis/agent.py    prompts and LLM calls
 jarvis/semantic.py semantic ranking with cached local embeddings
 jarvis/notify.py   Slack alert for P1 incidents
+jarvis/db.py       PostgreSQL: migrations, vector cache, suggestion audit
+db/migrations/     SQL migrations, applied at startup
 jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
@@ -211,4 +225,4 @@ tests/             offline tests + eval_search.py (keyword vs semantic)
 - [x] **Step 6**: semantic search with local embeddings
 - [x] **Step 7**: Slack alert for P1 tickets
 
-**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md): PostgreSQL + pgvector, docs as code synced to the ServiceNow KB, a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.
+**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI). Next up: docs as code synced to the ServiceNow KB, a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.

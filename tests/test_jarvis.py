@@ -19,7 +19,10 @@ class FakeSnow:
     def __init__(self, existing_draft=None, locked=True, approved=True):
         self.notes, self.fields, self.created, self.existing_draft = {}, {}, [], existing_draft
         self.users = {"u1": {"sys_id": "u1", "name": "Alex Rivera", "locked_out": "true" if locked else "false"}}
-        self.is_approved, self.updates = approved, []
+        self.is_approved, self.updates, self.audited = approved, [], []
+
+    def audit(self, ticket, kind, sources=(), detail=None):
+        self.audited.append((ticket, kind, list(sources)))
 
     def get_user(self, sys_id):
         return self.users.get(sys_id)
@@ -132,6 +135,7 @@ class TestJarvis(unittest.TestCase):
         self.assertIn("&lt;b&gt;hardware&lt;/b&gt;", art["text"])   # model output escaped in article HTML
         self.assertNotIn("<b>", art["text"])
         self.assertIn("Drafted knowledge article KB0099999", snow.notes["abc"])
+        self.assertEqual(snow.audited, [("INC2", "kb_draft", ["KB0099999"])])
         self.assertIn("Disabled hardware acceleration", llm.prompts[0])  # resolution notes reach the model
 
     def test_kb_draft_skips_covered_fix(self):
@@ -167,6 +171,7 @@ class TestJarvis(unittest.TestCase):
         snow = FakeSnow()
         handle_remediation(dict(self.LOCKOUT), snow)
         self.assertEqual(snow.updates, [("sys_user", "u1", {"locked_out": "false"})])
+        self.assertEqual(snow.audited, [("INC3", "remediation", [])])
         self.assertEqual(snow.fields["abc"]["state"], "6")
         self.assertIn("unlocked the account of Alex Rivera", snow.notes["abc"])
 

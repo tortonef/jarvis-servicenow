@@ -62,9 +62,12 @@ def main():
     token = os.environ.get("JARVIS_TOKEN", "")
     if len(token) < 16:
         raise SystemExit("Set JARVIS_TOKEN (at least 16 random characters) in .env first.")
-    snow = snow_from_env("keyword")  # no search here: skip loading the embedding model
+    install(snow_from_env("keyword"), sys.argv[1], token)  # no search here: skip loading the embedding model
+
+
+def install(snow, endpoint, token):
     upsert(snow, "sys_properties", "name=jarvis.endpoint",
-           {"name": "jarvis.endpoint", "value": sys.argv[1].rstrip("/"), "type": "string",
+           {"name": "jarvis.endpoint", "value": endpoint.rstrip("/"), "type": "string",
             "description": "Public URL of the Jarvis server"})
     # shortcut: token stored as a plain admin-only property; use a password2 property + Connection & Credential alias in production
     upsert(snow, "sys_properties", "name=jarvis.token",

@@ -1,5 +1,6 @@
 """Minimal ServiceNow Table API client."""
 import functools
+import os
 import re
 
 import requests
@@ -27,8 +28,9 @@ APPROVAL = "Approved Jarvis action: unlock"
 
 
 class Snow:
-    def __init__(self, instance, user, password, semantic=None):
+    def __init__(self, instance, user, password, semantic=None, db=None):
         self.semantic = semantic  # a SemanticIndex, or None for keyword search
+        self.db = db              # a psycopg connection for the audit trail, or None
         self.instance = instance.rstrip("/")
         self.base = self.instance + "/api/now/table/"
         self.http = requests.Session()
@@ -115,6 +117,16 @@ class Snow:
         r = self.http.patch(self.base + f"{table}/{sys_id}", json=data, timeout=30)
         r.raise_for_status()
         return r.json()["result"]
+
+    def audit(self, ticket, kind, sources=(), detail=None):
+        """Record what Jarvis suggested or did. Never blocks the ServiceNow update it describes."""
+        if not self.db:
+            return
+        from jarvis.db import record_suggestion
+        try:
+            record_suggestion(self.db, ticket, kind, os.getenv("LLM_MODEL"), sources, detail)
+        except Exception as e:
+            print(f"{ticket}: audit failed: {e}")
 
     def add_work_note(self, sys_id, note, fields=None):
         self.update("incident", sys_id, {"work_notes": note, **(fields or {})})
