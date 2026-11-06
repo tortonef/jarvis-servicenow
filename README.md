@@ -110,7 +110,7 @@ An article scores the best of its title and its full text: scoring the full text
 
 When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack channel as soon as its suggestion is ready: title linked to the incident, probable cause, confidence and KB sources, so the on-call team starts from a diagnosis instead of a bare alert. Set `NOTIFY_WEBHOOK_URL` to a Slack [Incoming Webhook](https://api.slack.com/messaging/webhooks); leave it empty to disable.
 
-<!-- docs/images/slack-p1.png -->
+<p align="center"><img src="docs/images/slack-p1.png" width="560" alt="Slack alert for a P1 incident with Jarvis's diagnosis"></p>
 
 ## Design choices
 

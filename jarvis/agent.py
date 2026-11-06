@@ -17,7 +17,7 @@ Probable cause: <one sentence>
 Suggested steps:
 1. ...
 2. ...
-Sources: <KB and INC numbers used>
+Sources: <only the KB and INC numbers used, e.g. KB0010016, INC0010003>
 Confidence: high | medium | low
 
 Use ONLY the information provided. If nothing is relevant, say so and suggest which team the ticket should be routed to."""
