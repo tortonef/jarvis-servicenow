@@ -207,6 +207,8 @@ tests/             offline tests + eval_search.py (keyword vs semantic)
 - [x] **Step 2**: "Ask Jarvis" button on the form and push via async Business Rule
 - [x] **Step 3**: auto-categorization and assignment group
 - [x] **Step 4**: draft KB article from resolved incidents whose fix is not documented yet
-- [x] **Step 7**: Slack alert for P1 tickets
 - [x] **Step 5**: auto-remediation with agent approval (account unlock)
 - [x] **Step 6**: semantic search with local embeddings
+- [x] **Step 7**: Slack alert for P1 tickets
+
+**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md): PostgreSQL + pgvector, docs as code synced to the ServiceNow KB, a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.
