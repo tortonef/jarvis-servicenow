@@ -1,6 +1,6 @@
 # Jarvis: an AI assistant for the IT Service Desk on ServiceNow
 
-Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group. When a ticket is resolved, it turns the fix into a **draft KB article**, so the knowledge base grows with every solved problem. For known fixes it can also **act**: it proposes a remediation (unlocking a locked-out account), an agent approves it with one click, and Jarvis carries it out.
+Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group. When a ticket is resolved, it turns the fix into a **draft KB article**, so the knowledge base grows with every solved problem. For known fixes it can also **act**: it proposes a remediation (unlocking a locked-out account), an agent approves it with one click, and Jarvis carries it out. **P1 incidents** are also pushed to Slack with Jarvis's first diagnosis.
 
 It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal Developer Instance**. No external database is needed: ServiceNow already is the data source.
 
@@ -25,6 +25,7 @@ flowchart LR
     HIST[(Resolved<br/>incidents)] -->|Table API| R
     L -->|work note + category + group<br/>via Table API| INC
     L -->|draft article on resolve| KB
+    L -->|P1 only| SL([Slack channel])
 ```
 
 ```mermaid
@@ -105,6 +106,12 @@ On 10 demo tickets written the way users write them (`python -m tests.eval_searc
 
 An article scores the best of its title and its full text: scoring the full text alone gave 8/10, because long bodies dilute the meaning. That choice was made on these same 10 tickets, so treat 10/10 as optimistic. Off-topic tickets ("the coffee machine is broken") get no articles at all. Set `SEARCH=keyword` to run without the model.
 
+### P1 alerts on Slack
+
+When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack channel as soon as its suggestion is ready: title linked to the incident, probable cause, confidence and KB sources, so the on-call team starts from a diagnosis instead of a bare alert. Set `NOTIFY_WEBHOOK_URL` to a Slack [Incoming Webhook](https://api.slack.com/messaging/webhooks); leave it empty to disable.
+
+<!-- docs/images/slack-p1.png -->
+
 ## Design choices
 
 | Choice | Why |
@@ -119,6 +126,7 @@ An article scores the best of its title and its full text: scoring the full text
 | **Triage never overrides people** | LLM output is checked against ServiceNow's own categories and groups; invented values are dropped, fields an agent already set are left alone, and a triage failure never blocks the resolution note. |
 | **KB drafts need a human** | Jarvis only creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
 | **Actions need a recorded human approval** | The model can only flag an intent; the proposal requires the data to agree, and `/remediate` acts only if it finds the agent's approval note and the account is still locked. A call without approval is refused even with a valid token. |
+| **Alerts can't be hijacked by ticket text** | Ticket text is escaped before it reaches Slack, so a title like `<!channel>` cannot ping the whole channel. A Slack outage is logged and never costs the work note. |
 | **Work note, not a comment** | The suggestion is visible to agents only, never to the end user. |
 
 ## Quickstart
@@ -177,7 +185,7 @@ Jarvis checks for new incidents every 30 seconds. Use one mode at a time, or new
 python -m unittest -v
 ```
 
-Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval. The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
+Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval. Slack alerts are tested for P1-only sending, escaping and failure handling (no real HTTP calls). The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
 
 ## Layout
 
@@ -185,6 +193,7 @@ Tests run offline (ServiceNow, the LLM and the embedding model are faked). They 
 jarvis/snow.py     ServiceNow REST client + search and ranking
 jarvis/agent.py    prompts and LLM calls
 jarvis/semantic.py semantic ranking with cached local embeddings
+jarvis/notify.py   Slack alert for P1 incidents
 jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
@@ -198,6 +207,6 @@ tests/             offline tests + eval_search.py (keyword vs semantic)
 - [x] **Step 2**: "Ask Jarvis" button on the form and push via async Business Rule
 - [x] **Step 3**: auto-categorization and assignment group
 - [x] **Step 4**: draft KB article from resolved incidents whose fix is not documented yet
-- [ ] Teams/Slack notification for P1 tickets
+- [x] **Step 7**: Slack alert for P1 tickets
 - [x] **Step 5**: auto-remediation with agent approval (account unlock)
 - [x] **Step 6**: semantic search with local embeddings

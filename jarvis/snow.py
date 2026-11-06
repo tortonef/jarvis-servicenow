@@ -29,7 +29,8 @@ APPROVAL = "Approved Jarvis action: unlock"
 class Snow:
     def __init__(self, instance, user, password, semantic=None):
         self.semantic = semantic  # a SemanticIndex, or None for keyword search
-        self.base = instance.rstrip("/") + "/api/now/table/"
+        self.instance = instance.rstrip("/")
+        self.base = self.instance + "/api/now/table/"
         self.http = requests.Session()
         self.http.auth = (user, password)
         self.http.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
@@ -53,7 +54,7 @@ class Snow:
 
     def new_incidents(self, limit=20):
         return self.query("incident", "active=true^state=1^ORDERBYDESCsys_created_on",
-                          ["sys_id", "number", "short_description", "description", "category", "assignment_group", "caller_id"], limit)
+                          ["sys_id", "number", "short_description", "description", "category", "assignment_group", "caller_id", "priority"], limit)
 
     # shortcut: cached for the process lifetime; restart Jarvis after adding categories or groups
     @functools.cache

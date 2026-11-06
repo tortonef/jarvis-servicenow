@@ -6,6 +6,7 @@ from pathlib import Path
 
 from jarvis.agent import draft_article, suggest, triage
 from jarvis.config import KB_TITLE, llm_from_env, snow_from_env
+from jarvis.notify import notify_p1
 
 # shortcut: processed ids in a local file; move to a custom field on incident if several Jarvis instances run
 STATE = Path("state.json")
@@ -55,6 +56,12 @@ def handle(incident, snow, llm, model):
         print(f"{incident['number']}: triage failed: {e}")
         fields, line = {}, ""
     snow.add_work_note(incident["sys_id"], note + line, fields)
+    if incident.get("priority") == "1":
+        try:
+            if notify_p1(incident, note, snow.instance):
+                print(f"{incident['number']}: P1 sent to Slack")
+        except Exception as e:  # the work note is already posted; a Slack outage must not hide it
+            print(f"{incident['number']}: Slack notification failed: {e}")
     print(f"{incident['number']}: suggestion posted (KB: {[a['number'] for a in kb]}, INC: {[i['number'] for i in similar]}){line.strip() and ' ' + line.strip()}")
 
 
