@@ -4,8 +4,8 @@ import os
 import time
 from pathlib import Path
 
-from jarvis.agent import suggest, triage
-from jarvis.config import llm_from_env, snow_from_env
+from jarvis.agent import draft_article, suggest, triage
+from jarvis.config import KB_TITLE, llm_from_env, snow_from_env
 
 # shortcut: processed ids in a local file; move to a custom field on incident if several Jarvis instances run
 STATE = Path("state.json")
@@ -40,6 +40,27 @@ def handle(incident, snow, llm, model):
         fields, line = {}, ""
     snow.add_work_note(incident["sys_id"], note + line, fields)
     print(f"{incident['number']}: suggestion posted (KB: {[a['number'] for a in kb]}, INC: {[i['number'] for i in similar]}){line.strip() and ' ' + line.strip()}")
+
+
+def handle_resolved(incident, snow, llm, model):
+    """Turn a resolution nobody documented yet into a draft KB article, linked to the incident."""
+    if not (incident.get("close_notes") or "").strip():
+        return print(f"{incident['number']}: no resolution notes, nothing to document")
+    if snow.draft_for(incident["sys_id"]):
+        return print(f"{incident['number']}: KB article already drafted")
+    text = f"{incident['short_description']} {incident.get('description', '')} {incident['close_notes']}"
+    result = draft_article(incident, snow.kb_candidates(text), llm, model)
+    if result is None:
+        return print(f"{incident['number']}: unusable KB draft from the model, skipped")
+    if "covered_by" in result:
+        note = f"[Jarvis] KB check: this fix is already documented in {result['covered_by']}. No new article needed."
+    else:
+        art = snow.create("kb_knowledge", {"short_description": result["title"], "text": result["text"],
+                                           "kb_knowledge_base": snow.kb_base(KB_TITLE)["sys_id"], "source": incident["sys_id"]})
+        note = (f"[Jarvis] Drafted knowledge article {art['number']} \"{result['title']}\" from this resolution.\n"
+                "It is a draft: review and publish it so the next agent finds the fix.")
+    snow.add_work_note(incident["sys_id"], note)
+    print(f"{incident['number']}: {note.splitlines()[0]}")
 
 
 def main():

@@ -14,7 +14,7 @@ SYS_ID = "1fd540d31b9c1310b3d3ea46624bcb0a"
 class TestServer(unittest.TestCase):
     def setUp(self):
         self.calls, self.done = [], threading.Event()
-        self.server = make_server(0, TOKEN, lambda s: (self.calls.append(s), self.done.set()))
+        self.server = make_server(0, TOKEN, {"/suggest": lambda s: (self.calls.append(s), self.done.set())})
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_port}"
 

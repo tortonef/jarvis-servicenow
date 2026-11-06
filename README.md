@@ -1,6 +1,6 @@
 # Jarvis: an AI assistant for the IT Service Desk on ServiceNow
 
-Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group.
+Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group. When a ticket is resolved, it turns the fix into a **draft KB article**, so the knowledge base grows with every solved problem.
 
 It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal Developer Instance**. No external database is needed: ServiceNow already is the data source.
 
@@ -14,9 +14,9 @@ It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal 
 flowchart LR
     U([End user]) -->|opens ticket| INC[(ServiceNow<br/>Incident)]
     A([Service Desk agent]) -->|clicks Ask Jarvis| BTN[UI Action]
-    INC -->|async Business Rule| CL[Script Include<br/>JarvisClient]
+    INC -->|async Business Rules<br/>on create / on resolve| CL[Script Include<br/>JarvisClient]
     BTN --> CL
-    CL -->|HTTPS POST /suggest<br/>sys_id + token| S
+    CL -->|HTTPS POST /suggest or /kb-draft<br/>sys_id + token| S
     subgraph Jarvis [Jarvis - Python]
         S[HTTP server] --> R[Retrieval<br/>KB + similar tickets]
         R --> L[LLM<br/>Groq / GPT-OSS 120B]
@@ -24,6 +24,7 @@ flowchart LR
     KB[(Knowledge Base<br/>kb_knowledge)] -->|Table API| R
     HIST[(Resolved<br/>incidents)] -->|Table API| R
     L -->|work note + category + group<br/>via Table API| INC
+    L -->|draft article on resolve| KB
 ```
 
 ```mermaid
@@ -68,6 +69,16 @@ Jarvis also picks the category and the assignment group. It fills them **only if
 
 <p align="center"><img src="docs/images/triage.png" width="700" alt="Category and assignment group set by Jarvis, with the triage line in the work note"></p>
 
+### Learning loop: KB drafts from resolved tickets
+
+When an incident is resolved, Jarvis reads the agent's resolution notes and the closest articles. If the fix is already documented, it says so and creates nothing. Otherwise it writes a **draft** article, linked to the incident, for a human to review and publish. The next time the same problem comes in, Jarvis finds the answer:
+
+<p align="center"><img src="docs/images/learning-loop.png" width="600" alt="Learning loop: low-confidence answer, agent fix, KB draft, high-confidence answer on the next ticket"></p>
+
+The draft Jarvis wrote from the agent's notes, linked back to the source incident:
+
+<p align="center"><img src="docs/images/kb-draft.png" width="700" alt="Draft KB article written by Jarvis"></p>
+
 ## Design choices
 
 | Choice | Why |
@@ -80,6 +91,7 @@ Jarvis also picks the category and the assignment group. It fills them **only if
 | **Dedicated KB with Instant Publish** | The PDI's "IT" KB has an approval flow: the seed creates "IT Service Desk (Jarvis demo)" and leaves the original untouched. |
 | **OpenAI-compatible API** | Groq, local Ollama, Gemini, OpenAI or Claude: just change `.env`. |
 | **Triage never overrides people** | LLM output is checked against ServiceNow's own categories and groups; invented values are dropped, fields an agent already set are left alone, and a triage failure never blocks the resolution note. |
+| **KB drafts need a human** | Jarvis only creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
 | **Work note, not a comment** | The suggestion is visible to agents only, never to the end user. |
 
 ## Quickstart
@@ -116,13 +128,13 @@ python -m jarvis.server
 cloudflared tunnel --url http://127.0.0.1:8787
 ```
 
-Then install the ServiceNow side (system properties, `JarvisClient` Script Include, *Ask Jarvis* button, async Business Rule) with the tunnel URL:
+Then install the ServiceNow side (system properties, `JarvisClient` Script Include, *Ask Jarvis* button, async Business Rules on create and on resolve) with the tunnel URL:
 
 ```bash
 python -m seed.install_snow https://<your-tunnel>.trycloudflare.com
 ```
 
-Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Quick-tunnel URLs change on every restart, so re-run `install_snow` with the new URL.
+Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Resolve an incident with resolution notes to get a KB draft. Quick-tunnel URLs change on every restart, so re-run `install_snow` with the new URL.
 
 ### Polling mode (no tunnel)
 
@@ -138,7 +150,7 @@ Jarvis checks for new incidents every 30 seconds. Use one mode at a time, or new
 python -m unittest -v
 ```
 
-Tests run offline (ServiceNow and the LLM are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, and that triage fills only empty fields and drops invented or malformed LLM output.
+Tests run offline (ServiceNow and the LLM are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, and that KB drafts are escaped, linked to the incident and skipped when the fix is already documented.
 
 ## Layout
 
@@ -157,7 +169,7 @@ tests/             offline tests
 - [x] **Step 1**: resolution suggestion from the KB and ticket history
 - [x] **Step 2**: "Ask Jarvis" button on the form and push via async Business Rule
 - [x] **Step 3**: auto-categorization and assignment group
-- [ ] Draft KB article generated from resolved incidents that have no article
+- [x] **Step 4**: draft KB article from resolved incidents whose fix is not documented yet
 - [ ] Teams/Slack notification for P1 tickets
 - [ ] Auto-remediation (e.g. password reset, account unlock) with agent approval
 - [ ] Semantic search with embeddings as the KB grows

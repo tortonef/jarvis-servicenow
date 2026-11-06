@@ -1,4 +1,4 @@
-"""Push mode: ServiceNow calls POST /suggest {"sys_id": "..."}; Jarvis answers 202 and posts the work note in the background."""
+"""Push mode: ServiceNow calls POST /suggest or /kb-draft with {"sys_id": "..."}; Jarvis answers 202 and works in the background."""
 import hmac
 import json
 import os
@@ -19,10 +19,11 @@ def parse_sys_id(body):
     return sys_id if isinstance(sys_id, str) and SYS_ID.match(sys_id) else None
 
 
-def make_server(port, token, work):
+def make_server(port, token, routes):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
-            if self.path != "/suggest":
+            work = routes.get(self.path)
+            if not work:
                 return self.send_error(404)
             if not hmac.compare_digest(self.headers.get("X-Jarvis-Token", ""), token):
                 return self.send_error(401)
@@ -41,7 +42,7 @@ def make_server(port, token, work):
 
 def main():
     from jarvis.config import llm_from_env, snow_from_env
-    from jarvis.main import handle
+    from jarvis.main import handle, handle_resolved
 
     token = os.environ["JARVIS_TOKEN"]
     if len(token) < 16:
@@ -49,17 +50,19 @@ def main():
     snow = snow_from_env()
     llm, model = llm_from_env()
 
-    def work(sys_id):
-        try:
-            inc = snow.get_incident(sys_id)
-            if inc:
-                handle(inc, snow, llm, model)
-        except Exception as e:  # log and keep serving; ServiceNow is not waiting for the result
-            print(f"{sys_id}: failed: {e}")
+    def job(fn):
+        def work(sys_id):
+            try:
+                inc = snow.get_incident(sys_id)
+                if inc:
+                    fn(inc, snow, llm, model)
+            except Exception as e:  # log and keep serving; ServiceNow is not waiting for the result
+                print(f"{sys_id}: failed: {e}")
+        return work
 
     port = int(os.getenv("JARVIS_PORT", "8787"))
-    print(f"Jarvis listening on http://127.0.0.1:{port}/suggest")
-    make_server(port, token, work).serve_forever()
+    print(f"Jarvis listening on http://127.0.0.1:{port} (/suggest, /kb-draft)")
+    make_server(port, token, {"/suggest": job(handle), "/kb-draft": job(handle_resolved)}).serve_forever()
 
 
 if __name__ == "__main__":

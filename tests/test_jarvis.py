@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from jarvis.agent import HEADER, build_prompt
-from jarvis.main import handle
+from jarvis.main import handle, handle_resolved
 from jarvis.snow import keywords, rank
 
 SEED = Path(__file__).parent.parent / "seed"
@@ -16,8 +16,21 @@ RESOLVED = [{"number": f"INC00100{i:02}", **r} for i, r in enumerate(INCIDENTS["
 
 class FakeSnow:
     """Same ranking as the real client, over local seed data instead of the Table API."""
-    def __init__(self):
-        self.notes, self.fields = {}, {}
+    def __init__(self, existing_draft=None):
+        self.notes, self.fields, self.created, self.existing_draft = {}, {}, [], existing_draft
+
+    def kb_candidates(self, text):
+        return self.search_kb(text)
+
+    def draft_for(self, sys_id):
+        return self.existing_draft
+
+    def kb_base(self, title):
+        return {"sys_id": "kb-demo"}
+
+    def create(self, table, data):
+        self.created.append((table, data))
+        return {"number": "KB0099999", **data}
 
     def search_kb(self, text):
         return rank(KB, keywords(text), ["short_description", "text"])
@@ -33,13 +46,13 @@ class FakeSnow:
 
 
 class FakeLLM:
-    def __init__(self, triage_json='{"category": "Network", "assignment_group": "Network"}'):
-        self.prompts, self.triage_json = [], triage_json
+    def __init__(self, json_reply='{"category": "Network", "assignment_group": "Network"}'):
+        self.prompts, self.json_reply = [], json_reply
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, model, messages, temperature, response_format=None):
         self.prompts.append(messages[1]["content"])
-        content = self.triage_json if response_format else "Probable cause: test"
+        content = self.json_reply if response_format else "Probable cause: test"
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
@@ -90,6 +103,42 @@ class TestJarvis(unittest.TestCase):
             self.assertEqual(fields, {}, bad)
             self.assertNotIn("Triage:", note)
             self.assertTrue(note.startswith(HEADER))  # resolution note still posted
+
+    def run_resolved(self, json_reply, snow=None, **incident_fields):
+        snow, llm = snow or FakeSnow(), FakeLLM(json_reply)
+        inc = {"sys_id": "abc", "number": "INC2", "short_description": "Zoom screen sharing shows a black screen",
+               "description": "Participants only see black when I share.", "close_notes": "Disabled hardware acceleration.",
+               **incident_fields}
+        handle_resolved(inc, snow, llm, "test-model")
+        return snow, llm
+
+    def test_kb_draft_created_escaped_and_linked(self):
+        reply = json.dumps({"covered_by": None, "title": "Zoom: black screen <script>x</script>", "symptom": "Black share",
+                            "cause": "GPU acceleration", "steps": ["Open Zoom settings", "Disable <b>hardware</b> acceleration"]})
+        snow, llm = self.run_resolved(reply)
+        (table, art), = snow.created
+        self.assertEqual((table, art["source"], art["kb_knowledge_base"]), ("kb_knowledge", "abc", "kb-demo"))
+        self.assertIn("&lt;b&gt;hardware&lt;/b&gt;", art["text"])   # model output escaped in article HTML
+        self.assertNotIn("<b>", art["text"])
+        self.assertIn("Drafted knowledge article KB0099999", snow.notes["abc"])
+        self.assertIn("Disabled hardware acceleration", llm.prompts[0])  # resolution notes reach the model
+
+    def test_kb_draft_skips_covered_fix(self):
+        snow = FakeSnow()
+        covered = snow.kb_candidates("Teams microphone meetings")[0]["number"]
+        snow, _ = self.run_resolved(json.dumps({"covered_by": covered}), snow=snow,
+                                    short_description="Teams: nobody can hear me in meetings")
+        self.assertEqual(snow.created, [])
+        self.assertIn(f"already documented in {covered}", snow.notes["abc"])
+
+    def test_kb_draft_rejects_bad_output_and_skips_needless_calls(self):
+        for bad in ['{"covered_by": "KB0000000"}', '{"covered_by": ["x"]}', '{"title": "x", "steps": []}', "nope",
+                    '{"title": "", "steps": ["a"]}', '{"title": "t", "steps": [1, 2]}']:
+            snow, _ = self.run_resolved(bad)
+            self.assertEqual((snow.created, snow.notes), ([], {}), bad)
+        for snow, fields in ((FakeSnow(existing_draft={"number": "KB1"}), {}), (FakeSnow(), {"close_notes": " "})):
+            _, llm = self.run_resolved("{}", snow=snow, **fields)
+            self.assertEqual(llm.prompts, [])  # no LLM call when there is nothing to do
 
 
 if __name__ == "__main__":

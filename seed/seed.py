@@ -2,10 +2,9 @@
 import json
 from pathlib import Path
 
-from jarvis.config import snow_from_env
+from jarvis.config import KB_TITLE, snow_from_env
 
 HERE = Path(__file__).parent
-KB_TITLE = "IT Service Desk (Jarvis demo)"
 
 
 def main():

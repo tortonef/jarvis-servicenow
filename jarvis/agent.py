@@ -71,3 +71,47 @@ def triage(incident, options, llm, model):
     if group in groups:
         result["assignment_group"] = group
     return result
+
+
+KB_DRAFT = """You maintain the IT Knowledge Base. You receive a resolved incident, with the agent's resolution notes,
+and the closest existing articles. Reply with JSON only.
+If one of the articles already explains this fix: {"covered_by": "<article number>"}
+Otherwise write a new article:
+{"covered_by": null, "title": "<short, searchable title>", "symptom": "<what the user sees>",
+ "cause": "<root cause, or empty if unknown>", "steps": ["<step>", "..."]}
+Write in English. Use only facts from the incident; do not invent hostnames, tools or procedures."""
+
+
+def draft_article(incident, candidates, llm, model):
+    """Return {"covered_by": number}, {"title", "text"} for a new article, or None if the model output is unusable."""
+    articles = "\n\n".join(f"ARTICLE {a['number']}: {a['short_description']}\n{strip_html(a['text'], 800)}" for a in candidates)
+    resp = llm.chat.completions.create(
+        model=model,
+        temperature=0.2,
+        response_format={"type": "json_object"},
+        messages=[{"role": "system", "content": KB_DRAFT},
+                  {"role": "user", "content": f"INCIDENT {incident['number']}\nTitle: {incident['short_description']}\n"
+                                              f"Description: {incident.get('description', '')}\n"
+                                              f"Resolution notes: {incident.get('close_notes', '')}\n\n{articles or 'No related articles.'}"}],
+    )
+    try:
+        out = json.loads(resp.choices[0].message.content)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(out, dict):
+        return None
+    if out.get("covered_by"):
+        # only trust a number we actually showed the model
+        number = str(out["covered_by"])
+        return {"covered_by": number} if number in {a["number"] for a in candidates} else None
+    title, steps = out.get("title"), out.get("steps")
+    if not isinstance(title, str) or not title.strip() or not isinstance(steps, list) or not steps \
+            or not all(isinstance(s, str) and s.strip() for s in steps):
+        return None
+    e = html.escape  # model output goes into article HTML
+    cause = str(out.get("cause") or "").strip()
+    text = (f"<h3>Symptom</h3><p>{e(str(out.get('symptom', '')))}</p>"
+            + (f"<h3>Cause</h3><p>{e(cause)}</p>" if cause else "")
+            + "<h3>Resolution</h3><ol>" + "".join(f"<li>{e(s)}</li>" for s in steps) + "</ol>"
+            + f"<p><em>Drafted by Jarvis from {e(incident['number'])}. Review before publishing.</em></p>")
+    return {"title": title.strip()[:160], "text": text}

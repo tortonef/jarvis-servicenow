@@ -78,6 +78,18 @@ class Snow:
         return self._search("kb_knowledge", "workflow_state=published", ["number", "short_description", "text"],
                             ["short_description", "text"], text, top)
 
+    def kb_candidates(self, text, top=3):
+        """Published articles and drafts: a draft already waiting for review also counts as coverage."""
+        return self._search("kb_knowledge", "workflow_stateINpublished,draft", ["number", "short_description", "text"],
+                            ["short_description", "text"], text, top)
+
+    def draft_for(self, incident_sys_id):
+        return self.first("kb_knowledge", f"source={incident_sys_id}")
+
+    @functools.cache
+    def kb_base(self, title):
+        return self.first("kb_knowledge_base", f"title={title}")
+
     def similar_resolved(self, text, top=3):
         return self._search("incident", "stateIN6,7", ["number", "short_description", "description", "close_notes"],
                             ["short_description", "description"], text, top)

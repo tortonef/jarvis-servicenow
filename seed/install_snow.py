@@ -1,5 +1,5 @@
-"""Install the ServiceNow side of push mode: system properties, a Script Include, the "Ask Jarvis" button and an
-async Business Rule on new incidents. Safe to re-run (updates records by name).
+"""Install the ServiceNow side of push mode: system properties, a Script Include, the "Ask Jarvis" button and async
+Business Rules on new incidents (suggestion + triage) and on resolved incidents (KB draft). Safe to re-run (updates records by name).
 
 Usage: python -m seed.install_snow https://<public-url-of-jarvis-server>
 """
@@ -13,9 +13,9 @@ JarvisClient.prototype = {
     initialize: function() {},
 
     // Fire-and-forget: Jarvis answers 202 and writes the work note itself
-    ask: function(sysId) {
+    ask: function(sysId, path) {
         var r = new sn_ws.RESTMessageV2();
-        r.setEndpoint(gs.getProperty('jarvis.endpoint') + '/suggest');
+        r.setEndpoint(gs.getProperty('jarvis.endpoint') + (path || '/suggest'));
         r.setHttpMethod('post');
         r.setRequestHeader('Content-Type', 'application/json');
         r.setRequestHeader('X-Jarvis-Token', gs.getProperty('jarvis.token'));
@@ -33,6 +33,10 @@ action.setRedirectURL(current);"""
 
 RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id);
+})(current, previous);"""
+
+RESOLVED_RULE = """(function executeRule(current, previous) {
+    new JarvisClient().ask(current.sys_id, '/kb-draft');
 })(current, previous);"""
 
 
@@ -66,6 +70,10 @@ def main():
     upsert(snow, "sys_script", "collection=incident^name=Jarvis: suggest on new incident",
            {"name": "Jarvis: suggest on new incident", "collection": "incident", "when": "async",
             "action_insert": "true", "advanced": "true", "active": "true", "order": "100", "script": RULE})
+    upsert(snow, "sys_script", "collection=incident^name=Jarvis: draft KB on resolve",
+           {"name": "Jarvis: draft KB on resolve", "collection": "incident", "when": "async",
+            "action_update": "true", "filter_condition": "stateCHANGESTO6^EQ", "advanced": "true", "active": "true",
+            "order": "100", "script": RESOLVED_RULE})
 
 
 if __name__ == "__main__":
