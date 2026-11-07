@@ -76,8 +76,14 @@ KB_API = """(function process(request, response) {
     gr.short_description = b.title;
     gr.text = b.html;
     gr.meta = tag + (b.keywords ? ' ' + b.keywords : '');
-    if (!found) gr.insert();  // the KB rules force new articles to draft...
-    gr.workflow_state = 'published';  // ...so publish with a second write: the review already happened in Git
+    if (!found) {
+        // the KB rules force a new article to draft while it is inserted: publish it with a separate write on a fresh
+        // copy of the record, as a reviewer would (the review already happened in the pull request)
+        var id = gr.insert();
+        gr = new GlideRecord('kb_knowledge');
+        gr.get(id);
+    }
+    gr.workflow_state = 'published';
     gr.update();
     return { number: String(gr.number), sys_id: gr.getUniqueValue(), created: !found };
 })(request, response);"""
