@@ -1,0 +1,56 @@
+# Jarvis procedure catalog.
+# This is code, not documentation: procedures change real systems, so every change goes through review and ships with
+# Jarvis (the knowledge base, by contrast, is published on merge). `python -m jarvis.procedures check` validates it.
+#
+# risk   L0  read only: runs automatically while Jarvis prepares its suggestion ("diagnose, then suggest")
+#        L1  safe, reversible change to one user or one server: proposed by Jarvis, approved by the agent, verified
+#        L2  impact on others: needs an approved Change (Phase 4)
+# docs   knowledge documents the procedure belongs to: Jarvis considers it when retrieval returns one of them
+# mid    the MID Server call (jarvis/mid.py CALLS) and, for ssh, the verb jarvis-agent runs on the target
+# params from: caller  -> the caller's user name (= sAMAccountName)
+#        from: ticket  -> the one value of `enum` mentioned in the ticket text
+# propose_if / verify  conditions on an L0 check: when to propose, and what must be true afterwards
+
+ad_lockout_status:
+  title: Check whether the caller's Active Directory account is locked out
+  risk: L0
+  docs: [KB-IAM-001, RB-AD-001, RB-AD-002]
+  mid: {call: lockout_status}
+  params:
+    account: {from: caller, pattern: '^[A-Za-z0-9._-]{1,64}$'}
+
+ad_unlock_account:
+  title: Unlock the caller's Active Directory account
+  risk: L1
+  docs: [KB-IAM-001, RB-AD-001]
+  mid: {call: unlock_account}
+  params:
+    account: {from: caller, pattern: '^[A-Za-z0-9._-]{1,64}$'}
+  propose_if: {check: ad_lockout_status, field: locked, equals: true}
+  verify: {check: ad_lockout_status, field: locked, equals: false}
+
+linux_disk_usage:
+  title: Check the helios-portal log volume on an application server
+  risk: L0
+  docs: [RB-SRV-001]
+  mid: {call: ssh, verb: disk_usage}
+  params:
+    host: {from: ticket, enum: [app01, app02]}
+
+linux_clean_logs:
+  title: Delete rotated helios-portal logs older than 14 days
+  risk: L1
+  docs: [RB-SRV-001]
+  mid: {call: ssh, verb: clean_logs}
+  params:
+    host: {from: ticket, enum: [app01, app02]}
+  propose_if: {check: linux_disk_usage, field: use_percent, at_least: 80}
+  verify: {check: linux_disk_usage, field: use_percent, below: 80}
+
+portal_health:
+  title: Check the helios-portal health endpoint on an application server
+  risk: L0
+  docs: [RB-SRV-002]
+  mid: {call: ssh, verb: portal_health}
+  params:
+    host: {from: ticket, enum: [app01, app02]}

@@ -67,11 +67,30 @@ services:
       JARVIS_LDAP_BASE: DC=helios,DC=local
       JARVIS_LDAP_BIND_DN: CN=svc_jarvis,OU=Service Accounts,DC=helios,DC=local
       JARVIS_LDAP_PASSWORD: ${LAB_SERVICE_PASSWORD}
+      JARVIS_SSH_HOSTS: app01,app02
+    volumes:
+      - lab-keys:/keys
     depends_on: [dc01]
     restart: unless-stopped
+
+  # Helios application servers: sshd with Jarvis's key bound to a forced command, fake helios-portal on :8080
+  app01: &app
+    profiles: [lab]
+    build: lab/app
+    hostname: app01
+    volumes:
+      - lab-keys:/keys:ro
+    tmpfs:
+      - /var/log/helios-portal:size=64m   # small on purpose: starts ~90% full for the RB-SRV-001 scenario
+    restart: unless-stopped
+
+  app02:
+    <<: *app
+    hostname: app02
 
 volumes:
   pgdata:
   models:
   dc01-data:
   dc01-etc:
+  lab-keys:

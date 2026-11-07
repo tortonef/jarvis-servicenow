@@ -4,13 +4,13 @@ import json
 import re
 
 TRIAGE = """Classify an IT incident for the Service Desk. Reply with JSON only:
-{{"category": "<one category>", "assignment_group": "<one group>", "action": "unlock_account" or null}}
+{{"category": "<one category>", "assignment_group": "<one group>"}}
 Categories: {cats}
 Assignment groups: {groups}
-Pick the group that would fix the issue; use "Service Desk" only for generic or unclear tickets.
-Set "action" to "unlock_account" only if the user reports that their own account is locked out; otherwise null."""
+Pick the group that would fix the issue; use "Service Desk" only for generic or unclear tickets."""
 SYSTEM = """You are Jarvis, an assistant for IT Service Desk agents.
-You receive a ticket, some Knowledge Base articles and similar resolved tickets.
+You receive a ticket, some Knowledge Base articles, similar resolved tickets and, when available, the results of
+read-only diagnostic checks just run on the real systems: trust those results over assumptions.
 Reply in English, in plain text (no markdown), with this structure:
 
 Probable cause: <one sentence>
@@ -29,8 +29,9 @@ def strip_html(text, limit=1500):
     return html.unescape(re.sub(r"<[^>]+>", " ", text or "")).strip()[:limit]
 
 
-def build_prompt(incident, kb, similar):
-    parts = [f"TICKET {incident['number']}\nTitle: {incident['short_description']}\nDescription:{incident.get('description', '')}"]
+def build_prompt(incident, kb, similar, diagnostics=None):
+    parts = [f"TICKET {incident['number']}\nTitle: {incident['short_description']}\nDescription: {incident.get('description', '')}"]
+    parts += [f"DIAGNOSTIC (read-only check just run) {name}:\n{json.dumps(result)}" for name, result in (diagnostics or {}).items()]
     parts += [f"ARTICLE {a['number']}: {a['short_description']}\n{strip_html(a['text'])}" for a in kb]
     parts += [f"RESOLVED TICKET {i['number']}: {i['short_description']}\nResolution: {i['close_notes']}" for i in similar]
     if not kb and not similar:
@@ -38,11 +39,12 @@ def build_prompt(incident, kb, similar):
     return "\n\n---\n\n".join(parts)
 
 
-def suggest(incident, kb, similar, llm, model):
+def suggest(incident, kb, similar, llm, model, diagnostics=None):
     resp = llm.chat.completions.create(
         model=model,
         temperature=0.2,
-        messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(incident, kb, similar)}],
+        messages=[{"role": "system", "content": SYSTEM},
+                  {"role": "user", "content": build_prompt(incident, kb, similar, diagnostics)}],
     )
     # work notes are plain text: drop markdown the model adds despite the prompt
     return HEADER + resp.choices[0].message.content.replace("**", "").replace("`", "").strip()
@@ -71,8 +73,6 @@ def triage(incident, options, llm, model):
         result["category"] = by_name[cat]
     if group in groups:
         result["assignment_group"] = group
-    if out.get("action") == "unlock_account":
-        result["action"] = "unlock_account"
     return result
 
 

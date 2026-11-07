@@ -81,13 +81,26 @@ The draft Jarvis wrote from the agent's notes, linked back to the source inciden
 
 <p align="center"><img src="docs/images/kb-draft.png" width="700" alt="Draft KB article written by Jarvis"></p>
 
-### Auto-remediation with approval
+### Procedures: diagnose, propose, approve, verify
 
-When a ticket is about a locked-out account, Jarvis does more than explain the fix. The model flags the intent, and Jarvis checks the data: is the caller really locked out in ServiceNow? Only then does it propose the action. An agent approves with the **Unlock account (Jarvis)** button, which is shown only while the caller is locked and records the approval as a work note in the agent's name. Jarvis re-checks the approval and the lockout, unlocks the account and resolves the ticket, which in turn triggers the KB check:
+Jarvis can act on real systems, within a catalog it cannot change. [`procedures/catalog.yaml`](procedures/catalog.yaml) lists what exists, each with a risk level, the knowledge documents it belongs to, validated parameters and the rules for proposing and verifying it:
 
-<p align="center"><img src="docs/images/remediation.png" width="760" alt="Jarvis proposes an unlock, the agent approves, Jarvis unlocks and resolves"></p>
+| Procedure | Risk | Runs on |
+|---|---|---|
+| `ad_lockout_status` | L0, read only, automatic | lab AD (`dc01`) |
+| `ad_unlock_account` | L1, agent approval | lab AD (`dc01`) |
+| `linux_disk_usage` | L0 | `app01`, `app02` |
+| `linux_clean_logs` | L1 | `app01`, `app02` |
+| `portal_health` | L0 | `app01`, `app02` |
 
-> The PDI has no Active Directory, so the demo unlocks the ServiceNow user (`sys_user.locked_out`). In production the same step would call Active Directory or Entra ID.
+1. **Diagnose, then suggest.** The L0 checks linked to the documents retrieval found run first, on-prem through the MID Server, and their results go into the prompt and the note.
+2. **Propose by rule, not by model.** An L1 is proposed only when its `propose_if` rule holds on those results (account `locked` is true, log volume at least 80%). Parameters come from data: the caller's user name, or the one server named in the ticket out of a fixed list; ambiguous tickets get no proposal.
+3. **Approve.** *Approve Jarvis procedure* is shown only while the latest Jarvis note is an open proposal; the click records the approval in the agent's name.
+4. **Act and verify.** Jarvis re-checks that the procedure is still needed, runs it, re-runs the L0 check against the `verify` rule, and resolves the ticket only if it passes. Every run, automatic or approved, is logged in the `execution` table.
+
+<p align="center"><img src="docs/images/procedures.png" width="760" alt="Jarvis diagnoses a locked AD account, proposes the unlock, the agent approves, Jarvis unlocks, verifies and resolves"></p>
+
+The same flow on a Linux server: a ticket about `app01`'s full log volume got two automatic checks (volume 84%, portal healthy), a cleanup proposal, and after approval 40 old logs were deleted, the volume dropped to 1% and the ticket was resolved.
 
 ### Knowledge base as code
 
@@ -142,6 +155,8 @@ sequenceDiagram
 
 <p align="center"><img src="docs/images/ad-check.png" width="760" alt="Check AD account button and the lockout state Jarvis read from the lab Active Directory"></p>
 
+To lock a lab user the way it happens in real life (6 bad passwords): `sh lab/lock-user.sh alex.rivera`.
+
 To run the lab: download ServiceNow's `mid-linux-container-recipe` for your instance version into `lab/mid/recipe/` (it is not redistributed here), then:
 
 ```bash
@@ -174,7 +189,7 @@ When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack chann
 | **OpenAI-compatible API** | Groq, local Ollama, Gemini, OpenAI or Claude: just change `.env`. |
 | **Triage never overrides people** | LLM output is checked against ServiceNow's own categories and groups; invented values are dropped, fields an agent already set are left alone, and a triage failure never blocks the resolution note. |
 | **KB drafts need a human** | Jarvis only creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
-| **Actions need a recorded human approval** | The model can only flag an intent; the proposal requires the data to agree, and `/remediate` acts only if it finds the agent's approval note and the account is still locked. A call without approval is refused even with a valid token. |
+| **Actions are layered allowlists** | The model never picks or writes an action. The catalog, Jarvis's parameter checks, the MID Script Includes (named functions, `OU=Staff` only, allowed hosts and verbs), AD delegation (`svc_jarvis` may write `lockoutTime` and nothing else) and an SSH forced command on each server must all agree. A call to `/approve` without a pending proposal and the agent's approval note does nothing, even with a valid token. |
 | **Alerts can't be hijacked by ticket text** | Ticket text is escaped before it reaches Slack, so a title like `<!channel>` cannot ping the whole channel. A Slack outage is logged and never costs the work note. |
 | **On-prem only through the MID Server** | ServiceNow's own outbound-only bridge: no firewall opening into the lab, ServiceNow keeps the ECC queue as an audit trail, and Jarvis can only call named MID functions. |
 | **Work note, not a comment** | The suggestion is visible to agents only, never to the end user. |
@@ -247,7 +262,7 @@ python -m unittest -v
 
 The database tests and the retrieval eval run against a real PostgreSQL when `TEST_DATABASE_URL` is set (with Docker, a separate database: `postgresql://jarvis:<POSTGRES_PASSWORD>@127.0.0.1:55432/jarvis_test`). CI runs on every push and pull request: front matter check, all tests on a pgvector service, the retrieval quality gate with the real model, and the Docker build.
 
-Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that every document in `knowledge/` is valid, that the docs loader reads only `knowledge/` files from the GitHub tarball and never writes them to disk, that Markdown becomes escaped KB HTML, that ingestion skips unchanged docs and retires deleted ones, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval. Slack alerts are tested for P1-only sending, escaping and failure handling (no real HTTP calls). The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
+Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that every document in `knowledge/` is valid, that the docs loader reads only `knowledge/` files from the GitHub tarball and never writes them to disk, that Markdown becomes escaped KB HTML, that ingestion skips unchanged docs and retires deleted ones, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, that the procedure catalog is valid, that parameters never come from free text, that L1 procedures are proposed only when their rule holds, and that approval without a proposal, a tampered parameter, a no-longer-needed action or a failed verification never resolves a ticket. Slack alerts are tested for P1-only sending, escaping and failure handling (no real HTTP calls). The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
 
 ## Layout
 
@@ -256,6 +271,8 @@ jarvis/snow.py     ServiceNow REST client + search and ranking
 jarvis/agent.py    prompts and LLM calls
 jarvis/semantic.py semantic ranking with cached local embeddings
 jarvis/mid.py      named MID Server calls through the ECC queue
+jarvis/procedures.py procedure catalog: validation, parameters, proposal and verification rules
+procedures/        catalog.yaml: what Jarvis may run, at which risk level
 jarvis/knowledge.py docs as code: validate, ingest, hybrid search, publish to the KB
 knowledge/         the Helios Group knowledge base (articles + runbooks)
 jarvis/notify.py   Slack alert for P1 incidents
@@ -264,8 +281,8 @@ db/migrations/     SQL migrations, applied at startup
 jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
-seed/              demo incidents and user, install_snow.py and JarvisLdap.js (MID Script Include)
-lab/               on-prem lab: dc01 (Samba AD) and the MID Server image
+seed/              demo incidents and user, install_snow.py, mid/ (MID Script Includes)
+lab/               on-prem lab: dc01 (Samba AD), app01/app02, the MID Server image, lock-user.sh
 tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI quality gate)
 ```
 
@@ -275,8 +292,8 @@ tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI
 - [x] **Step 2**: "Ask Jarvis" button on the form and push via async Business Rule
 - [x] **Step 3**: auto-categorization and assignment group
 - [x] **Step 4**: draft KB article from resolved incidents whose fix is not documented yet
-- [x] **Step 5**: auto-remediation with agent approval (account unlock)
+- [x] **Step 5**: procedures with risk levels and agent approval, run on-prem (AD unlock, log cleanup)
 - [x] **Step 6**: semantic search with local embeddings
 - [x] **Step 7**: Slack alert for P1 tickets
 
-**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code. Phase 2 done: on-prem lab and MID Server). Next up: a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.
+**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code. Phase 2 done: on-prem lab and MID Server. Phase 3 done: procedure catalog). Next up: the end-user and maintenance support processes.

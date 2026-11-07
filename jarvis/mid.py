@@ -12,6 +12,8 @@ from xml.sax.saxutils import quoteattr
 # The only code that can reach the MID: named calls to MID Script Includes. Arguments travel as probe parameters.
 CALLS = {
     "lockout_status": "new JarvisLdap().lockoutStatus(probe.getParameter('account'))",
+    "unlock_account": "new JarvisLdap().unlock(probe.getParameter('account'))",
+    "ssh": "new JarvisSsh().run(probe.getParameter('host'), probe.getParameter('verb'))",
 }
 
 

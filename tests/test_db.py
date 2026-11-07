@@ -74,6 +74,23 @@ class TestDb(unittest.TestCase):
         self.assertEqual(self.conn.execute("SELECT count(*) FROM chunk WHERE document_id = 'KB-PRN-901'").fetchone()[0], 0)
         kb.ingest([])
 
+    def test_executions_supersede_pending_and_finish(self):
+        from jarvis.db import Executions
+        ex = Executions(self.conn)
+        inc = {"sys_id": "exec-test", "number": "INC-TEST"}
+        ex.record_auto(inc, "ad_lockout_status", {"account": "a"}, {"locked": True})
+        ex.propose(inc, "ad_unlock_account", "L1", {"account": "a"})
+        ex.propose(inc, "ad_unlock_account", "L1", {"account": "b"})   # replaces the first proposal
+        pending = ex.pending("exec-test")
+        self.assertEqual(pending["params"], {"account": "b"})
+        ex.finish(pending["id"], "succeeded", "jane.agent", {"unlocked": True}, {"locked": False})
+        self.assertIsNone(ex.pending("exec-test"))
+        rows = self.conn.execute("SELECT risk, status, approved_by FROM execution WHERE incident_sys_id = 'exec-test' "
+                                 "ORDER BY id").fetchall()
+        self.assertEqual(rows, [("L0", "succeeded", "automatic"), ("L1", "superseded", None),
+                                ("L1", "succeeded", "jane.agent")])
+        self.conn.execute("DELETE FROM execution WHERE incident_sys_id = 'exec-test'")
+
     @classmethod
     def tearDownClass(cls):
         cls.conn.execute("DELETE FROM embedding_cache WHERE model IN ('test-model', 'fake')")

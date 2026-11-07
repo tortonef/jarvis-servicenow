@@ -1,6 +1,6 @@
 """Install the ServiceNow side of push mode: system properties, a Script Include, the "Ask Jarvis" button and async
 Business Rules on new incidents (suggestion + triage) and on resolved incidents (KB draft), plus the
-"Unlock account (Jarvis)" approval button, the "Helios Group IT" knowledge base and the Jarvis KB API that publishes
+"Approve Jarvis procedure" button for L1 procedures, the "Helios Group IT" knowledge base and the Jarvis KB API that publishes
 the docs repository into it. Safe to re-run (updates records by name).
 
 Usage: python -m seed.install_snow https://<public-url-of-jarvis-server>
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from jarvis.config import KB_TITLE, snow_from_env
-from jarvis.snow import APPROVAL
+from jarvis.snow import APPROVAL, OUTCOME, PROPOSAL
 
 CLIENT = """var JarvisClient = Class.create();
 JarvisClient.prototype = {
@@ -28,6 +28,20 @@ JarvisClient.prototype = {
         return r.executeAsync();
     },
 
+    // True while the latest Jarvis procedure note on the incident is a proposal nobody approved yet
+    pendingProposal: function(sysId) {
+        var j = new GlideRecord('sys_journal_field');
+        j.addQuery('element_id', String(sysId));
+        j.addQuery('element', 'work_notes');
+        var q = j.addQuery('value', 'STARTSWITH', '""" + PROPOSAL + """');
+        q.addOrCondition('value', 'STARTSWITH', '""" + APPROVAL + """');
+        q.addOrCondition('value', 'STARTSWITH', '""" + OUTCOME + """');
+        j.orderByDesc('sys_created_on');
+        j.setLimit(1);
+        j.query();
+        return j.next() && String(j.value).indexOf('""" + PROPOSAL + """') === 0;
+    },
+
     type: 'JarvisClient'
 };"""
 
@@ -39,11 +53,11 @@ RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id);
 })(current, previous);"""
 
-# The agent's click is the approval: recorded as a work note in their name, then Jarvis is asked to act
-UNLOCK_BUTTON = """current.work_notes = '""" + APPROVAL + """ the account of ' + current.caller_id.getDisplayValue() + '.';
+# The agent's click is the approval: recorded as a work note in their name (Jarvis reads the author), then Jarvis acts
+APPROVE_BUTTON = """current.work_notes = '""" + APPROVAL + """ (' + gs.getUserDisplayName() + ').';
 current.update();
-new JarvisClient().ask(current.sys_id, '/remediate');
-gs.addInfoMessage('Approved: Jarvis is unlocking the account.');
+new JarvisClient().ask(current.sys_id, '/approve');
+gs.addInfoMessage('Approved: Jarvis is running the procedure on-prem and will report the result in the work notes.');
 action.setRedirectURL(current);"""
 
 # Server-side because the Table API cannot edit or publish articles once they are published (it answers 403)
@@ -120,10 +134,11 @@ def install(snow, endpoint, token):
         flow = snow.first("sys_hub_flow", "name=Knowledge - Instant Publish")
         snow.create("kb_knowledge_base", {"title": KB_TITLE, "kb_publish_flow": flow["sys_id"] if flow else ""})
         print(f"kb_knowledge_base: {KB_TITLE} created")
-    # Runs on the MID Server, called by Jarvis through the ECC queue (jarvis/mid.py)
-    upsert(snow, "ecc_agent_script_include", "name=JarvisLdap",
-           {"name": "JarvisLdap", "active": "true", "script": (Path(__file__).parent / "JarvisLdap.js").read_text(encoding="utf-8"),
-            "description": "Read-only Active Directory checks for Jarvis (lab: helios.local)"})
+    # Run on the MID Server, called by Jarvis through the ECC queue (jarvis/mid.py)
+    for js in sorted((Path(__file__).parent / "mid").glob("*.js")):
+        upsert(snow, "ecc_agent_script_include", f"name={js.stem}",
+               {"name": js.stem, "active": "true", "script": js.read_text(encoding="utf-8"),
+                "description": "Jarvis MID function (lab: helios.local)"})
     api = upsert(snow, "sys_ws_definition", "service_id=jarvis_kb",
                  {"name": "Jarvis KB", "service_id": "jarvis_kb", "active": "true",
                   "short_description": "Publishes the Helios docs repository into the knowledge base"})
@@ -146,11 +161,15 @@ def install(snow, endpoint, token):
     upsert(snow, "sys_script", "collection=incident^name=Jarvis: suggest on new incident",
            {"name": "Jarvis: suggest on new incident", "collection": "incident", "when": "async",
             "action_insert": "true", "advanced": "true", "active": "true", "order": "100", "script": RULE})
-    upsert(snow, "sys_ui_action", "table=incident^name=Unlock account (Jarvis)",
-           {"name": "Unlock account (Jarvis)", "table": "incident", "action_name": "jarvis_unlock", "script": UNLOCK_BUTTON,
-            "condition": "current.active && !current.caller_id.nil() && current.caller_id.locked_out == true",
+    # Replaced by the generic approval below: kept inactive, not deleted, so the change is reversible
+    if snow.first("sys_ui_action", "table=incident^name=Unlock account (Jarvis)"):
+        upsert(snow, "sys_ui_action", "table=incident^name=Unlock account (Jarvis)",
+               {"name": "Unlock account (Jarvis)", "active": "false"})
+    upsert(snow, "sys_ui_action", "table=incident^name=Approve Jarvis procedure",
+           {"name": "Approve Jarvis procedure", "table": "incident", "action_name": "jarvis_approve", "script": APPROVE_BUTTON,
+            "condition": "current.active && new JarvisClient().pendingProposal(current.sys_id)",
             "form_button": "true", "workspace_form_button": "true", "client": "false", "active": "true", "order": "110",
-            "hint": "Approve Jarvis's proposal to unlock the caller's account"})
+            "hint": "Approve the L1 procedure Jarvis proposed in the work notes"})
     upsert(snow, "sys_ui_action", "table=incident^name=Check AD account (Jarvis)",
            {"name": "Check AD account (Jarvis)", "table": "incident", "action_name": "jarvis_ad_check", "script": DIAGNOSE_BUTTON,
             "condition": "current.active && !current.caller_id.nil()", "form_button": "true", "workspace_form_button": "true",

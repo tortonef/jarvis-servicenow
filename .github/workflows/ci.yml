@@ -30,6 +30,8 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Knowledge base front matter
         run: python -m jarvis.knowledge check
+      - name: Procedure catalog
+        run: python -m jarvis.procedures check
       - name: Unit and database tests (ServiceNow, LLM and embedding model are faked)
         run: python -m unittest -v
 

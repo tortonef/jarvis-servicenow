@@ -256,7 +256,7 @@ sequenceDiagram
 | **0. Foundations** ✅ | docker compose, PostgreSQL + pgvector, SQL migrations, persistent embedding cache, suggestion audit, CI with database tests, quick tunnel that registers itself in ServiceNow | `docker compose up` and the demo works; restart in 3 s instead of 30 s | done |
 | **1. Knowledge platform** ✅ | `knowledge/` with about 30 Helios Group documents and validated front matter, GitHub polling, ingestion + hybrid search in pgvector, one-way publish to the ServiceNow KB through a Scripted REST API, retrieval quality gate in CI | Merge a pull request → the article appears in ServiceNow and Jarvis cites it | done |
 | **2. On-prem lab + bridge** ✅ | Samba AD DC (`dc01`, `helios.local`) in Docker, MID Server from ServiceNow's official container recipe, ECC queue JavascriptProbe to a MID Script Include, read-only AD lockout check | A button in ServiceNow reads a real AD account's lockout status | done |
-| **3. Procedure catalog** | Procedures with schemas and risk levels, L0 auto-diagnostics, L1 approvals, execution audit, 5-8 procedures | "Can't log in" → diagnosis from AD → one-click unlock in the real lab AD | ~2 weeks |
+| **3. Procedure catalog** ✅ | `procedures/catalog.yaml` with 5 procedures (3 L0, 2 L1), rules for proposing and verifying, L0 auto-diagnostics in every suggestion, generic L1 approval button, `execution` audit table, lab servers app01/app02 with an SSH forced command, AD delegation | "Can't log in" → diagnosis from AD → one-click unlock in the real lab AD | done |
 | **4. Processes** | Portal / Virtual Agent deflection, "Run maintenance procedure" catalog item, L2 via Change, Problem proposals | Full L1 and L2 journeys end to end | ~2-3 weeks |
 | **5. Quality loop** | Feedback buttons, Grafana dashboards, KB-gap pull requests, stale-doc report | Dashboard showing what Jarvis saved this week | ~1 week |
 
@@ -279,6 +279,13 @@ sequenceDiagram
 - **Validation through the API**: setting `validated=true` on the `ecc_agent` record was enough on this PDI.
 - **Linux targets moved to Phase 3**, where the procedures that use them (disk cleanup, service restart) are built.
 - **Lab shortcuts**, marked in the code: the DC's self-signed certificate is not verified, and `ldapsearch -w` puts the bind password in the MID container's process list.
+
+### Phase 3 notes
+
+- **The catalog is code, not docs.** It lives in `procedures/` and ships with Jarvis; runbooks are linked to it through `docs`, not the other way round, so publishing a document can never enable an action.
+- **Rules decide, not the model.** The earlier demo let the model flag "unlock" and checked the data; now proposals and verifications are `propose_if` / `verify` rules on L0 results, and the model only writes the explanation.
+- **Approval state lives in two places on purpose**: the pending proposal in PostgreSQL (what to run, with which parameters) and the approval note in ServiceNow (who approved, by ServiceNow's clock). Both must agree.
+- **L2 (Change-approved) procedures move to Phase 4**, with the Change process.
 
 ## 10. Open questions
 

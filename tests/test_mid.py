@@ -15,6 +15,8 @@ LOCKED = {"account": "alex.rivera", "found": True, "locked": True, "locked_since
 
 
 class FakeSnow:
+    executions = None
+
     def __init__(self, answers_after=1):
         self.created, self.notes, self.audited, self.polls, self.answers_after = [], {}, [], 0, answers_after
 
@@ -81,7 +83,7 @@ class TestMid(unittest.TestCase):
         with mock.patch("jarvis.mid.run") as run:
             handle_diagnose({"sys_id": "i2", "number": "INC2", "caller_id": ""}, snow)
         run.assert_not_called()
-        self.assertIn("no caller", snow.notes["i2"])
+        self.assertIn("no valid caller", snow.notes["i2"])
 
 
 if __name__ == "__main__":

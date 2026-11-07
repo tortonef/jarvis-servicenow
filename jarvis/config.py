@@ -30,7 +30,11 @@ def snow_from_env(search=None):
         if db:  # docs-as-code knowledge base in PostgreSQL, sharing the embedding model
             from jarvis.knowledge import KnowledgeBase
             knowledge = KnowledgeBase(db, semantic.embedder, MODEL)
-    return Snow(os.environ["SNOW_INSTANCE"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"], semantic, db, knowledge)
+    snow = Snow(os.environ["SNOW_INSTANCE"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"], semantic, db, knowledge)
+    if db:
+        from jarvis.db import Executions
+        snow.executions = Executions(db)
+    return snow
 
 
 def llm_from_env():

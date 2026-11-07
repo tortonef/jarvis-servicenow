@@ -23,8 +23,11 @@ def rank(records, words, fields, top=3):
     return [r for s, r in scored if s > 0][:top]
 
 
-# Prefix of the work note the "Unlock account (Jarvis)" button writes: Jarvis acts only after finding it
-APPROVAL = "Approved Jarvis action: unlock"
+# Work note prefixes of the L1 procedure flow. ServiceNow shows the approve button while the latest of these notes is a
+# proposal; Jarvis acts only when an approval note follows the latest proposal.
+PROPOSAL = "[Jarvis] Proposed procedure"
+APPROVAL = "Approved Jarvis procedure"
+OUTCOME = "[Jarvis] Procedure"
 
 
 class Snow:
@@ -32,6 +35,7 @@ class Snow:
         self.semantic = semantic  # a SemanticIndex, or None for keyword search
         self.db = db              # a psycopg connection for the audit trail, or None
         self.knowledge = knowledge  # a KnowledgeBase (docs repo in PostgreSQL), or None to search the ServiceNow KB
+        self.executions = None      # jarvis.db.Executions when a database is configured
         self.instance = instance.rstrip("/")
         self.base = self.instance + "/api/now/table/"
         self.http = requests.Session()
@@ -75,9 +79,15 @@ class Snow:
     def get_user(self, sys_id):
         return self.first("sys_user", f"sys_id={sys_id}")
 
-    def approved(self, incident_sys_id):
-        return bool(self.first("sys_journal_field",
-                               f"element=work_notes^element_id={incident_sys_id}^valueSTARTSWITH{APPROVAL}"))
+    def approval_for_proposal(self, incident_sys_id):
+        """User name of the agent who approved the latest proposal, or None. ServiceNow's own clock orders the notes."""
+        notes = self.query("sys_journal_field",
+                           f"element=work_notes^element_id={incident_sys_id}^valueSTARTSWITH{PROPOSAL}"
+                           f"^ORvalueSTARTSWITH{APPROVAL}^ORvalueSTARTSWITH{OUTCOME}^ORDERBYDESCsys_created_on",
+                           ["value", "sys_created_by"], 5)
+        if len(notes) >= 2 and notes[0]["value"].startswith(APPROVAL) and notes[1]["value"].startswith(PROPOSAL):
+            return notes[0]["sys_created_by"]
+        return None
 
     def get_incident(self, sys_id):
         return self.first("incident", f"sys_id={sys_id}")

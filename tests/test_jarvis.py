@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from jarvis.agent import HEADER, build_prompt
-from jarvis.main import handle, handle_remediation, handle_resolved
+from jarvis.main import handle, handle_resolved
 from jarvis.knowledge import load_dir
 from jarvis.snow import keywords, rank
 
@@ -18,22 +18,13 @@ RESOLVED = [{"number": f"INC00100{i:02}", **r} for i, r in enumerate(INCIDENTS["
 
 class FakeSnow:
     """Same ranking as the real client, over local seed data instead of the Table API."""
-    def __init__(self, existing_draft=None, locked=True, approved=True):
-        self.notes, self.fields, self.created, self.existing_draft = {}, {}, [], existing_draft
-        self.users = {"u1": {"sys_id": "u1", "name": "Alex Rivera", "locked_out": "true" if locked else "false"}}
-        self.is_approved, self.updates, self.audited = approved, [], []
+    executions = None  # procedures are tested in test_procedures.py
+
+    def __init__(self, existing_draft=None):
+        self.notes, self.fields, self.created, self.existing_draft, self.audited = {}, {}, [], existing_draft, []
 
     def audit(self, ticket, kind, sources=(), detail=None):
         self.audited.append((ticket, kind, list(sources)))
-
-    def get_user(self, sys_id):
-        return self.users.get(sys_id)
-
-    def approved(self, sys_id):
-        return self.is_approved
-
-    def update(self, table, sys_id, data):
-        self.updates.append((table, sys_id, data))
 
     def kb_candidates(self, text):
         return self.search_kb(text)
@@ -156,35 +147,6 @@ class TestJarvis(unittest.TestCase):
         for snow, fields in ((FakeSnow(existing_draft={"number": "KB1"}), {}), (FakeSnow(), {"close_notes": " "})):
             _, llm = self.run_resolved("{}", snow=snow, **fields)
             self.assertEqual(llm.prompts, [])  # no LLM call when there is nothing to do
-
-    LOCKOUT = {"sys_id": "abc", "number": "INC3", "short_description": "Account locked, can't sign in",
-               "description": "Windows says my account is locked out.", "caller_id": {"value": "u1"}}
-
-    def test_unlock_proposed_only_when_model_and_data_agree(self):
-        cases = [('{"action": "unlock_account"}', True, True),   # model flags it, user really locked
-                 ('{"action": "unlock_account"}', False, False),  # model flags it, user not locked
-                 ('{"action": null}', True, False)]               # user locked, ticket not about it
-        for reply, locked, proposed in cases:
-            snow = FakeSnow(locked=locked)
-            handle(dict(self.LOCKOUT), snow, FakeLLM(reply), "test-model")
-            self.assertEqual("Proposed action: unlock the account of Alex Rivera" in snow.notes["abc"], proposed, reply)
-
-    def test_remediation_unlocks_and_resolves_after_approval(self):
-        snow = FakeSnow()
-        handle_remediation(dict(self.LOCKOUT), snow)
-        self.assertEqual(snow.updates, [("sys_user", "u1", {"locked_out": "false"})])
-        self.assertEqual(snow.audited, [("INC3", "remediation", [])])
-        self.assertEqual(snow.fields["abc"]["state"], "6")
-        self.assertIn("unlocked the account of Alex Rivera", snow.notes["abc"])
-
-    def test_remediation_refuses_without_approval_or_lockout(self):
-        snow = FakeSnow(approved=False)
-        handle_remediation(dict(self.LOCKOUT), snow)
-        self.assertEqual((snow.updates, snow.notes), ([], {}))
-        snow = FakeSnow(locked=False)
-        handle_remediation(dict(self.LOCKOUT), snow)
-        self.assertEqual(snow.updates, [])
-        self.assertIn("Nothing to do", snow.notes["abc"])
 
 
 if __name__ == "__main__":

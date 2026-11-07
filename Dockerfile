@@ -9,6 +9,7 @@ RUN useradd --create-home jarvis && mkdir /models && chown jarvis /models
 COPY jarvis jarvis
 COPY seed seed
 COPY db db
+COPY procedures procedures
 USER jarvis
 
 ENV PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 FASTEMBED_CACHE_PATH=/models JARVIS_HOST=0.0.0.0

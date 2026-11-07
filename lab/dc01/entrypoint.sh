@@ -21,4 +21,11 @@ if [ ! -f /var/lib/samba/private/sam.ldb ]; then
         --description="Jarvis automation (least privilege)"
     samba-tool user setexpiry svc_jarvis --noexpiry
 fi
+# Least privilege for Jarvis: write lockoutTime (unlock) on user objects under OU=Staff, nothing else.
+# 28630ebf-... is the lockoutTime attribute, bf967aba-... the user class.
+if [ ! -f /var/lib/samba/.jarvis-delegation ]; then
+    SID=$(samba-tool user show svc_jarvis --attributes=objectSid | awk '/^objectSid:/ { print $2 }')
+    samba-tool dsacl set -H /var/lib/samba/private/sam.ldb --objectdn="OU=Staff,DC=helios,DC=local"         --sddl="(OA;CI;WP;28630ebf-41d5-11d1-a9c1-0000f80367c1;bf967aba-0de6-11d0-a285-00aa003049e2;$SID)"
+    touch /var/lib/samba/.jarvis-delegation
+fi
 exec samba --foreground --no-process-group

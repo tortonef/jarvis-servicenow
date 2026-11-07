@@ -61,3 +61,41 @@ class VectorStore:
 def record_suggestion(conn, ticket, kind, model=None, sources=(), detail=None):
     conn.execute("INSERT INTO suggestion (ticket, kind, model, sources, detail) VALUES (%s, %s, %s, %s, %s)",
                  (ticket, kind, model, json.dumps(list(sources)), json.dumps(detail or {})))
+
+
+class Executions:
+    """Audit trail and state of procedure runs (table execution)."""
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def record_auto(self, incident, procedure_id, params, result):
+        """An L0 check Jarvis ran by itself."""
+        self.conn.execute(
+            "INSERT INTO execution (ticket, incident_sys_id, procedure_id, risk, params, status, approved_by, result, finished_at) "
+            "VALUES (%s, %s, %s, 'L0', %s, %s, 'automatic', %s, now())",
+            (incident["number"], incident["sys_id"], procedure_id, json.dumps(params),
+             "failed" if result.get("error") else "succeeded", json.dumps(result)))
+
+    def propose(self, incident, procedure_id, risk, params):
+        """A new proposal replaces any older one still waiting on the same incident."""
+        with self.conn.transaction():
+            self.conn.execute("UPDATE execution SET status = 'superseded', finished_at = now() "
+                              "WHERE incident_sys_id = %s AND status = 'proposed'", (incident["sys_id"],))
+            return self.conn.execute(
+                "INSERT INTO execution (ticket, incident_sys_id, procedure_id, risk, params, status) "
+                "VALUES (%s, %s, %s, %s, %s, 'proposed') RETURNING id",
+                (incident["number"], incident["sys_id"], procedure_id, risk, json.dumps(params))).fetchone()[0]
+
+    def pending(self, incident_sys_id):
+        row = self.conn.execute(
+            "SELECT id, procedure_id, params FROM execution WHERE incident_sys_id = %s AND status = 'proposed' "
+            "ORDER BY id DESC LIMIT 1", (incident_sys_id,)).fetchone()
+        return {"id": row[0], "procedure_id": row[1], "params": row[2]} if row else None
+
+    def finish(self, execution_id, status, approved_by=None, result=None, verify_result=None):
+        self.conn.execute(
+            "UPDATE execution SET status = %s, approved_by = %s, result = %s, verify_result = %s, finished_at = now() "
+            "WHERE id = %s",
+            (status, approved_by, json.dumps(result) if result is not None else None,
+             json.dumps(verify_result) if verify_result is not None else None, execution_id))

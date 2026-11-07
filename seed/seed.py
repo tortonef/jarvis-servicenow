@@ -10,12 +10,13 @@ HERE = Path(__file__).parent
 
 def main():
     snow = snow_from_env("keyword")  # no search here: skip loading the embedding model
-    # Demo user for auto-remediation: (re)locked on every run so the lockout scenario can be replayed
-    user = {"user_name": "alex.rivera", "first_name": "Alex", "last_name": "Rivera", "email": "alex.rivera@example.com",
-            "locked_out": "true"}
+    # Demo caller whose user name matches the lab AD account (lock it there: lab/lock-user.sh alex.rivera)
+    user = {"user_name": "alex.rivera", "first_name": "Alex", "last_name": "Rivera", "email": "alex.rivera@example.com"}
     rec = snow.first("sys_user", "user_name=alex.rivera")
-    rec = snow.update("sys_user", rec["sys_id"], {"locked_out": "true"}) if rec else snow.create("sys_user", user)
-    print("User", rec["user_name"], "locked out")
+    if rec and rec.get("locked_out") == "true":  # the ServiceNow flag was only a stand-in before the lab AD existed
+        snow.update("sys_user", rec["sys_id"], {"locked_out": "false"})
+    rec = rec or snow.create("sys_user", user)
+    print("User", rec["user_name"], "ready")
 
     incidents = json.loads((HERE / "incidents.json").read_text(encoding="utf-8"))
     for inc in incidents["resolved"]:
