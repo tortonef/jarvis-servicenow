@@ -7,6 +7,7 @@ Usage: python -m seed.install_snow https://<public-url-of-jarvis-server>
 """
 import os
 import sys
+from pathlib import Path
 
 from jarvis.config import KB_TITLE, snow_from_env
 from jarvis.snow import APPROVAL
@@ -88,6 +89,10 @@ KB_API = """(function process(request, response) {
     return { number: String(gr.number), sys_id: gr.getUniqueValue(), created: !found };
 })(request, response);"""
 
+DIAGNOSE_BUTTON = """new JarvisClient().ask(current.sys_id, '/diagnose');
+gs.addInfoMessage('Jarvis is checking the Active Directory account of the caller through the MID Server.');
+action.setRedirectURL(current);"""
+
 RESOLVED_RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id, '/kb-draft');
 })(current, previous);"""
@@ -115,6 +120,10 @@ def install(snow, endpoint, token):
         flow = snow.first("sys_hub_flow", "name=Knowledge - Instant Publish")
         snow.create("kb_knowledge_base", {"title": KB_TITLE, "kb_publish_flow": flow["sys_id"] if flow else ""})
         print(f"kb_knowledge_base: {KB_TITLE} created")
+    # Runs on the MID Server, called by Jarvis through the ECC queue (jarvis/mid.py)
+    upsert(snow, "ecc_agent_script_include", "name=JarvisLdap",
+           {"name": "JarvisLdap", "active": "true", "script": (Path(__file__).parent / "JarvisLdap.js").read_text(encoding="utf-8"),
+            "description": "Read-only Active Directory checks for Jarvis (lab: helios.local)"})
     api = upsert(snow, "sys_ws_definition", "service_id=jarvis_kb",
                  {"name": "Jarvis KB", "service_id": "jarvis_kb", "active": "true",
                   "short_description": "Publishes the Helios docs repository into the knowledge base"})
@@ -142,6 +151,11 @@ def install(snow, endpoint, token):
             "condition": "current.active && !current.caller_id.nil() && current.caller_id.locked_out == true",
             "form_button": "true", "workspace_form_button": "true", "client": "false", "active": "true", "order": "110",
             "hint": "Approve Jarvis's proposal to unlock the caller's account"})
+    upsert(snow, "sys_ui_action", "table=incident^name=Check AD account (Jarvis)",
+           {"name": "Check AD account (Jarvis)", "table": "incident", "action_name": "jarvis_ad_check", "script": DIAGNOSE_BUTTON,
+            "condition": "current.active && !current.caller_id.nil()", "form_button": "true", "workspace_form_button": "true",
+            "client": "false", "active": "true", "order": "105",
+            "hint": "Read-only: check the caller's lockout state in Active Directory"})
     upsert(snow, "sys_script", "collection=incident^name=Jarvis: draft KB on resolve",
            {"name": "Jarvis: draft KB on resolve", "collection": "incident", "when": "async",
             "action_update": "true", "filter_condition": "stateCHANGESTO6^EQ", "advanced": "true", "active": "true",

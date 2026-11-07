@@ -116,6 +116,48 @@ Retrieval quality on 40 tickets written the way users and engineers write them (
 
 Most of the gain comes from chunking: one vector per section keeps a long runbook from diluting its meaning. The full-text part adds the exact-command cases (*"repadmin shows errors"*). The cases were written together with the documents, so treat 98% as optimistic; CI fails any change that drops hybrid below 85%.
 
+### On-prem lab and MID Server
+
+Jarvis can check real systems on-prem without any inbound connection to them. The lab is a **Samba Active Directory** for `helios.local` (domain controller `dc01`, users in `OU=Staff`, lockout after 5 bad passwords), built from Debian's own packages. A **ServiceNow MID Server**, built from ServiceNow's official container recipe, is the only component that talks to it, and it only connects outbound to the PDI.
+
+```mermaid
+sequenceDiagram
+    participant SN as ServiceNow PDI
+    participant J as Jarvis
+    participant MID as MID Server (helios-mid)
+    participant DC as dc01 (Samba AD)
+    Note over SN: agent clicks "Check AD account (Jarvis)"
+    SN->>J: POST /diagnose {sys_id}
+    J->>SN: ECC queue output: JavascriptProbe JarvisLdap.lockoutStatus(account)
+    MID->>SN: poll ECC queue (outbound)
+    MID->>DC: LDAPS search as svc_jarvis (read only)
+    DC-->>MID: lockoutTime, badPwdCount, policy
+    MID->>SN: ECC queue input: result
+    J->>SN: read result, post work note
+```
+
+- **No paid plugins**: the IntegrationHub SSH and PowerShell steps are not active on a PDI, so Jarvis sends a *JavascriptProbe* that calls a fixed function in a MID Server Script Include (`JarvisLdap`). Only named calls exist (`jarvis/mid.py`), and the account name is validated on the MID before it reaches the LDAP filter.
+- **Least privilege**: the MID signs in as `mid.helios` (role `mid_server`, web service access only); LDAP uses `svc_jarvis`, an ordinary account with no admin rights. Its password lives only in the MID container and never passes through ServiceNow.
+- **Speed**: about 3 seconds per check once the MID is warm (the very first probe after start took about a minute while the MID synchronized).
+
+```
+Account alex.rivera: LOCKED OUT since 12:13 UTC after 5 bad passwords (threshold 5);
+unlocks automatically at 12:43 UTC.
+To unlock now follow RB-AD-001; if it locks again, find the source with RB-AD-002.
+```
+
+To run the lab: download ServiceNow's `mid-linux-container-recipe` for your instance version into `lab/mid/recipe/` (it is not redistributed here), then:
+
+```bash
+docker build -t mid:brazil-patch2 lab/mid/recipe
+```
+
+```bash
+docker compose --profile lab up -d --build
+```
+
+Set `MID_USER`, `MID_PASSWORD` and the `LAB_*` passwords in `.env` first, and validate the MID Server once in ServiceNow (**MID Server > Servers > helios-mid > Validate**).
+
 ### P1 alerts on Slack
 
 When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack channel as soon as its suggestion is ready: title linked to the incident, probable cause, confidence and KB sources, so the on-call team starts from a diagnosis instead of a bare alert. Set `NOTIFY_WEBHOOK_URL` to a Slack [Incoming Webhook](https://api.slack.com/messaging/webhooks); leave it empty to disable.
@@ -138,6 +180,7 @@ When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack chann
 | **KB drafts need a human** | Jarvis only creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
 | **Actions need a recorded human approval** | The model can only flag an intent; the proposal requires the data to agree, and `/remediate` acts only if it finds the agent's approval note and the account is still locked. A call without approval is refused even with a valid token. |
 | **Alerts can't be hijacked by ticket text** | Ticket text is escaped before it reaches Slack, so a title like `<!channel>` cannot ping the whole channel. A Slack outage is logged and never costs the work note. |
+| **On-prem only through the MID Server** | ServiceNow's own outbound-only bridge: no firewall opening into the lab, ServiceNow keeps the ECC queue as an audit trail, and Jarvis can only call named MID functions. |
 | **Work note, not a comment** | The suggestion is visible to agents only, never to the end user. |
 
 ## Quickstart
@@ -216,6 +259,7 @@ Tests run offline (ServiceNow, the LLM and the embedding model are faked). They 
 jarvis/snow.py     ServiceNow REST client + search and ranking
 jarvis/agent.py    prompts and LLM calls
 jarvis/semantic.py semantic ranking with cached local embeddings
+jarvis/mid.py      named MID Server calls through the ECC queue
 jarvis/knowledge.py docs as code: validate, ingest, hybrid search, publish to the KB
 knowledge/         the Helios Group knowledge base (articles + runbooks)
 jarvis/notify.py   Slack alert for P1 incidents
@@ -224,7 +268,8 @@ db/migrations/     SQL migrations, applied at startup
 jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
-seed/              demo incidents and user, install_snow.py for the ServiceNow side
+seed/              demo incidents and user, install_snow.py and JarvisLdap.js (MID Script Include)
+lab/               on-prem lab: dc01 (Samba AD) and the MID Server image
 tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI quality gate)
 ```
 
@@ -238,4 +283,4 @@ tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI
 - [x] **Step 6**: semantic search with local embeddings
 - [x] **Step 7**: Slack alert for P1 tickets
 
-**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code). Next up: a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.
+**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code. Phase 2 done: on-prem lab and MID Server). Next up: a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.

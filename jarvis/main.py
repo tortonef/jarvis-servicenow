@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 
+from jarvis import mid
 from jarvis.agent import draft_article, suggest, triage
 from jarvis.config import KB_TITLE, llm_from_env, snow_from_env
 from jarvis.notify import notify_p1
@@ -104,6 +105,36 @@ def handle_remediation(incident, snow, llm=None, model=None):
                         "close_notes": f"Account of {user['name']} unlocked by Jarvis after agent approval. The user can sign in again."})
     snow.audit(incident["number"], "remediation", detail={"action": "unlock_account", "user": user["name"]})
     print(f"{incident['number']}: unlocked {user['name']}")
+
+
+def lockout_note(r):
+    """Work note text for a JarvisLdap.lockoutStatus result."""
+    hhmm = lambda iso: iso[11:16] + " UTC"
+    head = f"[Jarvis] Active Directory check (read only, helios.local via MID Server)\n\nAccount {r.get('account', '?')}: "
+    if r.get("error"):
+        return head + f"check failed: {r['error']}"
+    if not r.get("found"):
+        return head + "not found in the directory. Check the caller's user name."
+    if r["locked"]:
+        state = (f"LOCKED OUT since {hhmm(r['locked_since'])} after {r['bad_password_count']} bad passwords "
+                 f"(threshold {r['lockout_threshold']})")
+        state += f"; unlocks automatically at {hhmm(r['unlocks_at'])}." if r.get("unlocks_at") else "."
+        state += "\nTo unlock now follow RB-AD-001; if it locks again, find the source with RB-AD-002."
+    else:
+        state = f"not locked out ({r['bad_password_count']} recent bad passwords)."
+    return head + state + ("\nThe account is DISABLED." if r.get("disabled") else "")
+
+
+def handle_diagnose(incident, snow, llm=None, model=None):
+    """L0 diagnostic: read the caller's real AD lockout state on-prem, through the MID Server. Changes nothing."""
+    ref = incident.get("caller_id")
+    user = snow.get_user(ref["value"]) if isinstance(ref, dict) and ref.get("value") else None
+    if not user:
+        return snow.add_work_note(incident["sys_id"], "[Jarvis] Active Directory check skipped: the incident has no caller.")
+    result = mid.run(snow, "lockout_status", {"account": user["user_name"]})
+    snow.add_work_note(incident["sys_id"], lockout_note(result))
+    snow.audit(incident["number"], "diagnostic", detail={"check": "lockout_status", "result": result})
+    print(f"{incident['number']}: AD check {user['user_name']}: locked={result.get('locked')}")
 
 
 def main():

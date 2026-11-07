@@ -255,7 +255,7 @@ sequenceDiagram
 |---|---|---|---|
 | **0. Foundations** ✅ | docker compose, PostgreSQL + pgvector, SQL migrations, persistent embedding cache, suggestion audit, CI with database tests, quick tunnel that registers itself in ServiceNow | `docker compose up` and the demo works; restart in 3 s instead of 30 s | done |
 | **1. Knowledge platform** ✅ | `knowledge/` with about 30 Helios Group documents and validated front matter, GitHub polling, ingestion + hybrid search in pgvector, one-way publish to the ServiceNow KB through a Scripted REST API, retrieval quality gate in CI | Merge a pull request → the article appears in ServiceNow and Jarvis cites it | done |
-| **2. On-prem lab + bridge** | Samba AD DC and Linux targets in Docker, **MID Server spike on the PDI** (PowerShell/SSH), fallback Jarvis Runner if needed | A button in ServiceNow reads a real AD account's lockout status | ~1-2 weeks |
+| **2. On-prem lab + bridge** ✅ | Samba AD DC (`dc01`, `helios.local`) in Docker, MID Server from ServiceNow's official container recipe, ECC queue JavascriptProbe to a MID Script Include, read-only AD lockout check | A button in ServiceNow reads a real AD account's lockout status | done |
 | **3. Procedure catalog** | Procedures with schemas and risk levels, L0 auto-diagnostics, L1 approvals, execution audit, 5-8 procedures | "Can't log in" → diagnosis from AD → one-click unlock in the real lab AD | ~2 weeks |
 | **4. Processes** | Portal / Virtual Agent deflection, "Run maintenance procedure" catalog item, L2 via Change, Problem proposals | Full L1 and L2 journeys end to end | ~2-3 weeks |
 | **5. Quality loop** | Feedback buttons, Grafana dashboards, KB-gap pull requests, stale-doc report | Dashboard showing what Jarvis saved this week | ~1 week |
@@ -273,9 +273,16 @@ sequenceDiagram
 - **Publishing needs a Scripted REST API** (*Jarvis KB*): the Table API answers 403 when editing a published article, and new articles are forced to draft on insert, so the script publishes with a separate write.
 - **KB drafts from resolved tickets still go to ServiceNow** (step 4 of the demo). Moving them to pull requests is part of Phase 5.
 
+### Phase 2 notes
+
+- **The MID Server path works on a PDI without IntegrationHub.** The SSH and PowerShell action steps are not active, but a *JavascriptProbe* sent through the ECC queue runs a MID Server Script Include, which can start a local process (`ldapsearch`) on the MID host. No Jarvis Runner needed.
+- **Validation through the API**: setting `validated=true` on the `ecc_agent` record was enough on this PDI.
+- **Linux targets moved to Phase 3**, where the procedures that use them (disk cleanup, service restart) are built.
+- **Lab shortcuts**, marked in the code: the DC's self-signed certificate is not verified, and `ldapsearch -w` puts the bind password in the MID container's process list.
+
 ## 10. Open questions
 
-1. **MID Server capabilities on the PDI**: which probes and IntegrationHub steps (PowerShell, SSH) can be activated for free. Decides between MID and Jarvis Runner in Phase 2.
+1. ~~MID Server capabilities on the PDI~~: answered in Phase 2, JavascriptProbe + MID Script Include.
 2. **Virtual Agent on the PDI**: available and scriptable enough for the deflection flow, or use a simple portal widget instead.
 3. **Lab host**: Docker Desktop on this PC (simplest) or an always-on small VM (needed if the demo must run while this PC is off).
 4. **Fictional company scope**: how many users, departments and servers Helios Group needs to make the demo credible without becoming busywork.

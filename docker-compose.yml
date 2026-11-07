@@ -37,6 +37,41 @@ services:
       - jarvis
     restart: unless-stopped
 
+  # On-prem lab (docker compose --profile lab up -d): the Helios domain controller
+  dc01:
+    profiles: [lab]
+    build: lab/dc01
+    hostname: dc01
+    domainname: helios.local
+    cap_add: [SYS_ADMIN]        # Samba stores Windows ACLs in security.* extended attributes
+    environment:
+      LAB_ADMIN_PASSWORD: ${LAB_ADMIN_PASSWORD:?set LAB_ADMIN_PASSWORD in .env}
+      LAB_USER_PASSWORD: ${LAB_USER_PASSWORD:?set LAB_USER_PASSWORD in .env}
+      LAB_SERVICE_PASSWORD: ${LAB_SERVICE_PASSWORD:?set LAB_SERVICE_PASSWORD in .env}
+    volumes:
+      - dc01-data:/var/lib/samba
+      - dc01-etc:/etc/samba
+    restart: unless-stopped
+
+  # MID Server: the only component that talks to the lab, outbound to ServiceNow only
+  mid:
+    profiles: [lab]
+    build: lab/mid             # needs the official image first: docker build -t mid:brazil-patch2 lab/mid/recipe
+    environment:
+      MID_INSTANCE_URL: ${SNOW_INSTANCE}
+      MID_INSTANCE_USERNAME: ${MID_USER:?set MID_USER in .env}
+      MID_INSTANCE_PASSWORD: ${MID_PASSWORD:?set MID_PASSWORD in .env}
+      MID_SERVER_NAME: helios-mid
+      # Read by the JarvisLdap MID Script Include; the password never goes through ServiceNow
+      JARVIS_LDAP_URL: ldaps://dc01
+      JARVIS_LDAP_BASE: DC=helios,DC=local
+      JARVIS_LDAP_BIND_DN: CN=svc_jarvis,OU=Service Accounts,DC=helios,DC=local
+      JARVIS_LDAP_PASSWORD: ${LAB_SERVICE_PASSWORD}
+    depends_on: [dc01]
+    restart: unless-stopped
+
 volumes:
   pgdata:
   models:
+  dc01-data:
+  dc01-etc:
