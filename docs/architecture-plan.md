@@ -254,7 +254,7 @@ sequenceDiagram
 | Phase | Scope | Demo moment | Effort |
 |---|---|---|---|
 | **0. Foundations** ✅ | docker compose, PostgreSQL + pgvector, SQL migrations, persistent embedding cache, suggestion audit, CI with database tests, quick tunnel that registers itself in ServiceNow | `docker compose up` and the demo works; restart in 3 s instead of 30 s | done |
-| **1. Knowledge platform** | Docs repo with front matter, ~30 Helios Group documents, ingestion + hybrid search, one-way sync to ServiceNow KB, evaluation set in CI | Merge a pull request → the article appears in ServiceNow and Jarvis cites it | ~2 weeks |
+| **1. Knowledge platform** ✅ | `knowledge/` with about 30 Helios Group documents and validated front matter, GitHub polling, ingestion + hybrid search in pgvector, one-way publish to the ServiceNow KB through a Scripted REST API, retrieval quality gate in CI | Merge a pull request → the article appears in ServiceNow and Jarvis cites it | done |
 | **2. On-prem lab + bridge** | Samba AD DC and Linux targets in Docker, **MID Server spike on the PDI** (PowerShell/SSH), fallback Jarvis Runner if needed | A button in ServiceNow reads a real AD account's lockout status | ~1-2 weeks |
 | **3. Procedure catalog** | Procedures with schemas and risk levels, L0 auto-diagnostics, L1 approvals, execution audit, 5-8 procedures | "Can't log in" → diagnosis from AD → one-click unlock in the real lab AD | ~2 weeks |
 | **4. Processes** | Portal / Virtual Agent deflection, "Run maintenance procedure" catalog item, L2 via Change, Problem proposals | Full L1 and L2 journeys end to end | ~2-3 weeks |
@@ -265,6 +265,13 @@ sequenceDiagram
 - **No FastAPI yet.** The standard-library server already validates and routes the three endpoints; FastAPI comes in when the procedure catalog needs a real API.
 - **Quick tunnel instead of a named tunnel.** A named Cloudflare tunnel needs a domain on Cloudflare. Instead the `tunnel` container runs a quick tunnel and Jarvis reads its URL from cloudflared's metrics endpoint at startup and re-registers in ServiceNow. Same result for a demo, no account. Switch to a named tunnel (or ngrok's free static domain) when a stable public URL matters.
 - **Port 55432.** PostgreSQL is published on `127.0.0.1:55432` because 5432 is often taken by a local Postgres.
+
+### Phase 1 notes
+
+- **Docs live in this repository** (`knowledge/`), not a separate one: same pull request flow, one CI. Split it out when another team owns the docs.
+- **Jarvis polls GitHub** instead of CI pushing to the database: GitHub Actions cannot reach a database on a laptop. Public repo, unauthenticated API, one call per poll.
+- **Publishing needs a Scripted REST API** (*Jarvis KB*): the Table API answers 403 when editing a published article, and new articles are forced to draft on insert, so the script publishes with a separate write.
+- **KB drafts from resolved tickets still go to ServiceNow** (step 4 of the demo). Moving them to pull requests is part of Phase 5.
 
 ## 10. Open questions
 

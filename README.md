@@ -2,7 +2,7 @@
 
 Jarvis reacts to every new ServiceNow incident (or to the **Ask Jarvis** button on the form), searches the **Knowledge Base** and **previously resolved incidents**, posts a **resolution suggestion** for the agent as a work note, and **triages** the ticket: category and assignment group. When a ticket is resolved, it turns the fix into a **draft KB article**, so the knowledge base grows with every solved problem. For known fixes it can also **act**: it proposes a remediation (unlocking a locked-out account), an agent approves it with one click, and Jarvis carries it out. **P1 incidents** are also pushed to Slack with Jarvis's first diagnosis.
 
-It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal Developer Instance**. No external database is needed: ServiceNow already is the data source.
+It runs on a **free** LLM (Groq, GPT-OSS 120B) and a free ServiceNow **Personal Developer Instance**. The knowledge base is **documentation as code**: Markdown in [`knowledge/`](knowledge/), reviewed by pull request, indexed in PostgreSQL + pgvector and published to the ServiceNow KB.
 
 ![Jarvis work note on a ServiceNow incident](docs/images/work-note-closeup.png)
 
@@ -18,10 +18,12 @@ flowchart LR
     BTN --> CL
     CL -->|HTTPS POST /suggest, /kb-draft,<br/>/remediate: sys_id + token| S
     subgraph Jarvis [Jarvis - Python]
-        S[HTTP server] --> R[Semantic retrieval<br/>local embeddings]
+        S[HTTP server] --> R[Hybrid retrieval<br/>pgvector + full text]
         R --> L[LLM<br/>Groq / GPT-OSS 120B]
+        PG[(PostgreSQL<br/>chunks + vectors)] --> R
     end
-    KB[(Knowledge Base<br/>kb_knowledge)] -->|Table API| R
+    GH[(knowledge/ on GitHub<br/>Markdown, reviewed by PR)] -->|poll, ingest| PG
+    GH -->|publish via Jarvis KB API| KB[(ServiceNow KB<br/>Helios Group IT)]
     HIST[(Resolved<br/>incidents)] -->|Table API| R
     L -->|work note + category + group<br/>via Table API| INC
     L -->|draft article on resolve| KB
@@ -37,8 +39,7 @@ sequenceDiagram
     J-->>SN: 202 Accepted
     J->>SN: GET incident by sys_id
     SN-->>J: INC0010019 "Teams: nobody can hear me in meetings"
-    J->>SN: GET kb_knowledge + resolved incidents
-    Note over J: rank by meaning (cached local embeddings)
+    J->>J: hybrid search in PostgreSQL (docs) + similar resolved incidents
     SN-->>J: KB0010023 Teams audio/video, INC0010009...
     J->>LLM: ticket + articles + past resolutions
     LLM-->>J: probable cause, steps, sources, confidence
@@ -88,23 +89,32 @@ When a ticket is about a locked-out account, Jarvis does more than explain the f
 
 > The PDI has no Active Directory, so the demo unlocks the ServiceNow user (`sys_user.locked_out`). In production the same step would call Active Directory or Entra ID.
 
-### Semantic search
+### Knowledge base as code
 
-Users rarely use the words of the KB title. Jarvis ranks articles and past tickets by meaning, with a small embedding model that runs locally ([fastembed](https://github.com/qdrant/fastembed), `BAAI/bge-small-en-v1.5`, no API key). Vectors are cached and only new or edited records are embedded; the server builds the index at startup (about 20 seconds on the PDI), after which a note takes about 5 seconds.
+The documentation of **Helios Group**, a fictional company with its own domain, servers and teams, lives in [`knowledge/`](knowledge/): about 30 documents, articles for users and the Service Desk and runbooks for the maintenance team, Markdown with validated front matter. Changing the knowledge base is a pull request:
 
-On 10 demo tickets written the way users write them (`python -m tests.eval_search`):
+```mermaid
+flowchart LR
+    PR[Pull request<br/>new or edited doc] --> CI{CI: front matter check<br/>+ retrieval quality gate}
+    CI -->|review + merge| MAIN[main]
+    MAIN -->|Jarvis polls GitHub| ING[Ingest changed docs:<br/>chunks + embeddings<br/>in PostgreSQL]
+    ING --> PUB[Publish / update / retire<br/>in the ServiceNow KB]
+    ING --> ANS[Jarvis cites it<br/>in the next answer]
+```
 
-| Ticket | Right article | Keyword | Semantic |
-|---|---|:---:|:---:|
-| PC asks for a 48-digit code when I turn it on | BitLocker | ✗ | ✓ |
-| My laptop takes ages to boot and the fan is always loud | Slow laptop | ✗ | ✓ |
-| I need permission to open the finance team's network drive | Shared folder access | ✗ | ✓ |
-| I press print and nothing comes out, documents wait forever | Printer queue | ✗ | ✓ |
-| Big workbook makes the spreadsheet program shut down | Excel crashes | ✗ | ✓ |
-| 5 more tickets that share words with the article | | ✓ | ✓ |
-| **Right article first** | | **5/10** | **10/10** |
+- **Search** is hybrid: meaning (local embeddings, [fastembed](https://github.com/qdrant/fastembed) `BAAI/bge-small-en-v1.5`, no API key) plus a small full-text bonus for exact commands and codes, in one PostgreSQL query. Each document is split into a title + symptoms chunk and one chunk per section.
+- **Publishing**: ServiceNow refuses to edit published articles through the Table API, so the installer adds a small Scripted REST API (*Jarvis KB*) that creates, updates and retires articles server side. Articles are matched on the document id, so editing a doc updates the same KB number.
+- **Only changes move**: documents are skipped by content hash; a deleted doc retires its article. A malformed doc stops the sync and Jarvis keeps serving the last good knowledge base.
 
-An article scores the best of its title and its full text: scoring the full text alone gave 8/10, because long bodies dilute the meaning. That choice was made on these same 10 tickets, so treat 10/10 as optimistic. Off-topic tickets ("the coffee machine is broken") get no articles at all. Set `SEARCH=keyword` to run without the model.
+Retrieval quality on 40 tickets written the way users and engineers write them (`python -m tests.eval_search`):
+
+| Search | Right document first |
+|---|:---:|
+| Keyword (ServiceNow-style `LIKE` + ranking) | 80% |
+| Semantic, whole documents | 78% |
+| **Hybrid, chunked (what Jarvis uses)** | **98%** |
+
+Most of the gain comes from chunking: one vector per section keeps a long runbook from diluting its meaning. The full-text part adds the exact-command cases (*"repadmin shows errors"*). The cases were written together with the documents, so treat 98% as optimistic; CI fails any change that drops hybrid below 85%.
 
 ### P1 alerts on Slack
 
@@ -116,12 +126,13 @@ When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack chann
 
 | Choice | Why |
 |---|---|
-| **No external database** | Incidents, KB and history already live in ServiceNow. Jarvis does not duplicate data. |
-| **Local embeddings, in memory** | Free, private (ticket text never leaves the machine for search) and fast for the 500 most recent records per table. With tens of thousands, move the vectors to a vector DB (pgvector/Chroma) or use ServiceNow AI Search. |
+| **ServiceNow stays the record for tickets** | Incidents, approvals and history live in ServiceNow; PostgreSQL holds only Jarvis's own data: the knowledge index, vector cache and audit trail. |
+| **Docs as code, one-way to ServiceNow** | Git gives versioning, review by pull request and a quality gate for free; the ServiceNow KB is a read-only mirror, so the two never drift. |
+| **Local embeddings** | Free and private: ticket text never leaves the machine for search. |
 | **Push, with polling as fallback** | An async Business Rule and the *Ask Jarvis* button call Jarvis right away. Where ServiceNow cannot reach Jarvis, `jarvis.main` polls instead (no tunnel, nothing installed in ServiceNow). |
 | **Untrusted caller** | The Jarvis endpoint requires a shared token, accepts only a 32-hex `sys_id` and re-reads the incident from ServiceNow; it never trusts ticket text sent in the request. |
 | **A single LLM call (RAG)** | More predictable and faster than a tool-calling agent, and fits the free-tier limits. |
-| **Dedicated KB with Instant Publish** | The PDI's "IT" KB has an approval flow: the seed creates "IT Service Desk (Jarvis demo)" and leaves the original untouched. |
+| **Dedicated KB with Instant Publish** | The PDI's "IT" KB has an approval flow; in *Helios Group IT* the approval is the pull request, and the stock KBs stay untouched. |
 | **OpenAI-compatible API** | Groq, local Ollama, Gemini, OpenAI or Claude: just change `.env`. |
 | **Triage never overrides people** | LLM output is checked against ServiceNow's own categories and groups; invented values are dropped, fields an agent already set are left alone, and a triage failure never blocks the resolution note. |
 | **KB drafts need a human** | Jarvis only creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
@@ -143,13 +154,13 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Fill in `.env` with the instance URL, admin credentials, Groq key and a random `JARVIS_TOKEN`, then load the demo data:
+Fill in `.env` with the instance URL, admin credentials, Groq key, a random `JARVIS_TOKEN` and `DOCS_REPO` (the GitHub repo holding `knowledge/`), then load the demo incidents and the lockout demo user:
 
 ```bash
 python -m seed.seed
 ```
 
-ServiceNow does not allow publishing KB articles through the Table API: open **System Definition > Scripts - Background**, paste [`seed/publish_kb.js`](seed/publish_kb.js) and click *Run script*.
+The KB articles are not seeded: Jarvis publishes `knowledge/` to the ServiceNow KB *Helios Group IT* when it starts.
 
 ### Run with Docker (recommended)
 
@@ -159,7 +170,7 @@ Requires Docker. Set `POSTGRES_PASSWORD` in `.env`, then:
 docker compose up -d --build
 ```
 
-This starts three containers: **PostgreSQL + pgvector** (embedding cache and an audit trail of every suggestion), the **Jarvis server**, and a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account needed). At startup Jarvis reads the tunnel's public URL and installs the ServiceNow side with it: system properties, `JarvisClient` Script Include, *Ask Jarvis* and *Unlock account (Jarvis)* buttons, async Business Rules on create and on resolve. Quick-tunnel URLs change on every restart; Jarvis re-registers each time, so there is nothing to do by hand.
+This starts three containers: **PostgreSQL + pgvector** (embedding cache and an audit trail of every suggestion), the **Jarvis server**, and a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account needed). At startup Jarvis reads the tunnel's public URL and installs the ServiceNow side with it: system properties, `JarvisClient` Script Include, *Ask Jarvis* and *Unlock account (Jarvis)* buttons, async Business Rules on create and on resolve, the *Helios Group IT* knowledge base and the *Jarvis KB* API. Then it syncs `knowledge/` from GitHub and checks for new commits every `DOCS_POLL_SECONDS`. Quick-tunnel URLs change on every restart; Jarvis re-registers each time, so there is nothing to do by hand.
 
 The first start embeds the KB and the ticket history (about 30 seconds on the PDI); later starts load the vectors from PostgreSQL (about 3 seconds).
 
@@ -179,7 +190,7 @@ cloudflared tunnel --url http://127.0.0.1:8787
 python -m seed.install_snow https://<your-tunnel>.trycloudflare.com
 ```
 
-Without `DATABASE_URL` Jarvis keeps vectors in memory and skips the audit trail.
+Without `DATABASE_URL` Jarvis keeps vectors in memory, skips the audit trail and answers from whatever is already in the ServiceNow KB (no docs sync). `python -m jarvis.knowledge sync` publishes `knowledge/` once.
 
 ### Polling mode (no tunnel)
 
@@ -195,9 +206,9 @@ Jarvis checks for new incidents every 30 seconds. Use one mode at a time, or new
 python -m unittest -v
 ```
 
-The database tests run against a real PostgreSQL when `TEST_DATABASE_URL` is set (with Docker: `postgresql://jarvis:<POSTGRES_PASSWORD>@127.0.0.1:55432/jarvis`); CI runs everything on every push.
+The database tests and the retrieval eval run against a real PostgreSQL when `TEST_DATABASE_URL` is set (with Docker, a separate database: `postgresql://jarvis:<POSTGRES_PASSWORD>@127.0.0.1:55432/jarvis_test`). CI runs on every push and pull request: front matter check, all tests on a pgvector service, the retrieval quality gate with the real model, and the Docker build.
 
-Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that retrieval finds the right KB article for every demo ticket, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval. Slack alerts are tested for P1-only sending, escaping and failure handling (no real HTTP calls). The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
+Tests run offline (ServiceNow, the LLM and the embedding model are faked). They check that every document in `knowledge/` is valid, that the docs loader reads only `knowledge/` files from the GitHub tarball and never writes them to disk, that Markdown becomes escaped KB HTML, that ingestion skips unchanged docs and retires deleted ones, that the HTTP endpoint rejects a wrong token, a malformed `sys_id` and invalid JSON, that triage fills only empty fields and drops invented or malformed LLM output, that KB drafts are escaped, linked to the incident and skipped when the fix is already documented, and that an unlock is proposed only when model and data agree and executed only after a recorded approval. Slack alerts are tested for P1-only sending, escaping and failure handling (no real HTTP calls). The semantic index is tested for ranking, the relevance threshold and embedding caching; `python -m tests.eval_search` measures retrieval quality with the real model.
 
 ## Layout
 
@@ -205,14 +216,16 @@ Tests run offline (ServiceNow, the LLM and the embedding model are faked). They 
 jarvis/snow.py     ServiceNow REST client + search and ranking
 jarvis/agent.py    prompts and LLM calls
 jarvis/semantic.py semantic ranking with cached local embeddings
+jarvis/knowledge.py docs as code: validate, ingest, hybrid search, publish to the KB
+knowledge/         the Helios Group knowledge base (articles + runbooks)
 jarvis/notify.py   Slack alert for P1 incidents
 jarvis/db.py       PostgreSQL: migrations, vector cache, suggestion audit
 db/migrations/     SQL migrations, applied at startup
 jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
-seed/              demo data, KB publish script, install_snow.py for the ServiceNow side
-tests/             offline tests + eval_search.py (keyword vs semantic)
+seed/              demo incidents and user, install_snow.py for the ServiceNow side
+tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI quality gate)
 ```
 
 ## Roadmap
@@ -225,4 +238,4 @@ tests/             offline tests + eval_search.py (keyword vs semantic)
 - [x] **Step 6**: semantic search with local embeddings
 - [x] **Step 7**: Slack alert for P1 tickets
 
-**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI). Next up: docs as code synced to the ServiceNow KB, a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.
+**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code). Next up: a procedure catalog with risk levels running on an on-prem lab through the MID Server, and the end-user and maintenance support processes.
