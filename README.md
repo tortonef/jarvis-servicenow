@@ -140,11 +140,7 @@ sequenceDiagram
 - **Least privilege**: the MID signs in as `mid.helios` (role `mid_server`, web service access only); LDAP uses `svc_jarvis`, an ordinary account with no admin rights. Its password lives only in the MID container and never passes through ServiceNow.
 - **Speed**: about 3 seconds per check once the MID is warm (the very first probe after start took about a minute while the MID synchronized).
 
-```
-Account alex.rivera: LOCKED OUT since 12:13 UTC after 5 bad passwords (threshold 5);
-unlocks automatically at 12:43 UTC.
-To unlock now follow RB-AD-001; if it locks again, find the source with RB-AD-002.
-```
+<p align="center"><img src="docs/images/ad-check.png" width="760" alt="Check AD account button and the lockout state Jarvis read from the lab Active Directory"></p>
 
 To run the lab: download ServiceNow's `mid-linux-container-recipe` for your instance version into `lab/mid/recipe/` (it is not redistributed here), then:
 
