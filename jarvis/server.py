@@ -85,9 +85,27 @@ def main():
     server = make_server(port, token, {"/suggest": job(handle), "/kb-draft": job(handle_resolved),
                                        "/remediate": job(handle_remediation)}, host)
     print(f"Jarvis listening on http://{host}:{port} (/suggest, /kb-draft, /remediate)")
-    if os.getenv("JARVIS_TUNNEL_METRICS"):  # docker compose: register the tunnel once the socket is open
-        threading.Thread(target=register_tunnel, args=(snow, token, os.environ["JARVIS_TUNNEL_METRICS"]), daemon=True).start()
+    threading.Thread(target=background, args=(snow, token), daemon=True).start()
     server.serve_forever()
+
+
+def background(snow, token):
+    """After the socket is open: register the tunnel (docker compose), then keep the knowledge base in sync."""
+    if os.getenv("JARVIS_TUNNEL_METRICS"):
+        register_tunnel(snow, token, os.environ["JARVIS_TUNNEL_METRICS"])
+    if not snow.knowledge or not (os.getenv("DOCS_REPO") or os.getenv("DOCS_DIR")):
+        return print("knowledge: no DATABASE_URL or docs source (DOCS_REPO / DOCS_DIR): answering from the ServiceNow KB")
+    from jarvis.config import KB_TITLE
+    from jarvis.knowledge import sync
+    force = True  # first run and after a failure: re-read even a known commit so nothing stays unpublished
+    while True:
+        try:
+            sync(snow, snow.knowledge, KB_TITLE, force)
+            force = False
+        except Exception as e:  # GitHub or ServiceNow down: keep the last good knowledge base and retry
+            print(f"knowledge: sync failed, retrying: {e}")
+            force = True
+        time.sleep(int(os.getenv("DOCS_POLL_SECONDS", "300")))
 
 
 if __name__ == "__main__":

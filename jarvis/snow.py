@@ -28,9 +28,10 @@ APPROVAL = "Approved Jarvis action: unlock"
 
 
 class Snow:
-    def __init__(self, instance, user, password, semantic=None, db=None):
+    def __init__(self, instance, user, password, semantic=None, db=None, knowledge=None):
         self.semantic = semantic  # a SemanticIndex, or None for keyword search
         self.db = db              # a psycopg connection for the audit trail, or None
+        self.knowledge = knowledge  # a KnowledgeBase (docs repo in PostgreSQL), or None to search the ServiceNow KB
         self.instance = instance.rstrip("/")
         self.base = self.instance + "/api/now/table/"
         self.http = requests.Session()
@@ -94,11 +95,15 @@ class Snow:
         return rank(self.query(table, f"{base_query}^{like}", fields, limit=50), words, search_fields, top)
 
     def search_kb(self, text, top=3):
+        if self.knowledge:
+            return self.knowledge.search(text, top)
         return self._search("kb_knowledge", "workflow_state=published", ["number", "short_description", "text"],
                             ["short_description", "text"], text, top)
 
     def kb_candidates(self, text, top=3):
         """Published articles and drafts: a draft already waiting for review also counts as coverage."""
+        if self.knowledge:  # shortcut: drafts Jarvis wrote in ServiceNow are not seen here; Phase 5 moves drafts to pull requests
+            return self.knowledge.search(text, top)
         return self._search("kb_knowledge", "workflow_stateINpublished,draft", ["number", "short_description", "text"],
                             ["short_description", "text"], text, top)
 

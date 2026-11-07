@@ -1,30 +1,15 @@
-"""Load demo KB articles and incidents into a ServiceNow PDI. Safe to re-run: skips records that already exist."""
+"""Load demo incidents and the lockout demo user into a ServiceNow PDI. Safe to re-run: skips records that already exist.
+KB articles are not seeded: they come from knowledge/ through the Jarvis KB sync."""
 import json
 from pathlib import Path
 
-from jarvis.config import KB_TITLE, snow_from_env
+from jarvis.config import snow_from_env
 
 HERE = Path(__file__).parent
 
 
 def main():
     snow = snow_from_env("keyword")  # no search here: skip loading the embedding model
-    # Own KB with "Instant Publish": the stock "IT" KB uses an approval flow that keeps API-created articles in draft
-    flow = snow.first("sys_hub_flow", "name=Knowledge - Instant Publish")
-    kb_base = snow.first("kb_knowledge_base", f"title={KB_TITLE}") or snow.create(
-        "kb_knowledge_base", {"title": KB_TITLE, "kb_publish_flow": flow["sys_id"] if flow else ""})
-
-    drafts = 0
-    for art in json.loads((HERE / "kb_articles.json").read_text(encoding="utf-8")):
-        rec = snow.first("kb_knowledge", f"short_description={art['short_description']}")
-        if not rec:
-            rec = snow.create("kb_knowledge", {**art, "kb_knowledge_base": kb_base["sys_id"]})
-            print("KB", rec["number"], art["short_description"])
-        drafts += rec["workflow_state"] != "published"
-    if drafts:
-        # ServiceNow ignores workflow_state changes via the Table API; publishing must run server-side
-        print(f"\n{drafts} KB articles are drafts. Paste seed/publish_kb.js into System Definition > Scripts - Background and run it.\n")
-
     # Demo user for auto-remediation: (re)locked on every run so the lockout scenario can be replayed
     user = {"user_name": "alex.rivera", "first_name": "Alex", "last_name": "Rivera", "email": "alex.rivera@example.com",
             "locked_out": "true"}

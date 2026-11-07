@@ -28,8 +28,41 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Knowledge base front matter
+        run: python -m jarvis.knowledge check
       - name: Unit and database tests (ServiceNow, LLM and embedding model are faked)
         run: python -m unittest -v
+
+  eval:
+    # Retrieval quality gate: the real embedding model on the real knowledge base, hybrid search in pgvector
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: jarvis
+          POSTGRES_USER: jarvis
+          POSTGRES_PASSWORD: ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jarvis -d jarvis"
+          --health-interval 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://jarvis:ci-only@127.0.0.1:5432/jarvis
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/fastembed
+          key: fastembed-bge-small-en-v1.5
+      - name: Hybrid retrieval must find the right document for at least 85% of the evaluation tickets
+        run: python -m tests.eval_search
 
   docker:
     runs-on: ubuntu-latest

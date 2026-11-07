@@ -48,6 +48,32 @@ class TestDb(unittest.TestCase):
         row = self.conn.execute("SELECT kind, sources FROM suggestion WHERE ticket = 'INC-TEST' ORDER BY id DESC").fetchone()
         self.assertEqual(row, ("answer", ["KB1"]))
 
+    def test_knowledge_ingest_detects_changes_and_searches(self):
+        from jarvis.knowledge import KnowledgeBase, parse
+        from tests.test_knowledge import GOOD
+        from tests.test_semantic import FakeEmbedder
+        vpn = parse("articles/vpn.md", GOOD.replace("Test article", "VPN error").replace("Step one", "vpn step"))
+        printer = parse("articles/prn.md", GOOD.replace("KB-NET-901", "KB-PRN-901").replace("Test article", "Printer queue")
+                        .replace("vpn down", "printer jammed"))
+        emb = FakeEmbedder()
+        kb = KnowledgeBase(self.conn, emb, "fake")
+        kb.ingest([])  # start empty: the eval may have loaded the real knowledge base into this database
+        changed, removed = kb.ingest([vpn, printer], "sha1")
+        self.assertEqual(({d["id"] for d in changed}, removed), ({"KB-NET-901", "KB-PRN-901"}, []))
+        self.assertEqual(kb.state(), "sha1")
+        calls = len(emb.embedded)
+        self.assertEqual(kb.ingest([vpn, printer])[0], [])               # unchanged: nothing re-embedded
+        self.assertEqual(len(emb.embedded), calls)
+        self.assertEqual(kb.search("printer is jammed", 1)[0]["doc_id"], "KB-PRN-901")
+        self.assertEqual(kb.search("coffee", 1), [])                     # unrelated: below the threshold
+        kb.set_kb_number("KB-NET-901", "KB0010050")
+        self.assertEqual([d["id"] for d in kb.unpublished([vpn, printer])], ["KB-PRN-901"])
+        self.assertEqual(kb.search("vpn", 1)[0]["number"], "KB0010050")  # cites the ServiceNow article
+        changed, removed = kb.ingest([vpn])                               # printer doc deleted from the repo
+        self.assertEqual((changed, removed), ([], ["KB-PRN-901"]))
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM chunk WHERE document_id = 'KB-PRN-901'").fetchone()[0], 0)
+        kb.ingest([])
+
     @classmethod
     def tearDownClass(cls):
         cls.conn.execute("DELETE FROM embedding_cache WHERE model IN ('test-model', 'fake')")

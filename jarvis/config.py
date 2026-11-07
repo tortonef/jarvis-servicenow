@@ -7,8 +7,8 @@ from jarvis.snow import Snow
 
 load_dotenv()
 
-# Knowledge base where the demo articles live and where Jarvis drafts new ones
-KB_TITLE = os.getenv("JARVIS_KB", "IT Service Desk (Jarvis demo)")
+# ServiceNow knowledge base the docs repository is published to, and where Jarvis drafts new articles
+KB_TITLE = os.getenv("JARVIS_KB", "Helios Group IT")
 
 
 def snow_from_env(search=None):
@@ -16,7 +16,7 @@ def snow_from_env(search=None):
     mode = search or os.getenv("SEARCH", "semantic")
     if mode not in ("semantic", "keyword"):
         raise SystemExit(f"SEARCH must be 'semantic' or 'keyword', not {mode!r}")
-    db = semantic = None
+    db = semantic = knowledge = None
     if os.getenv("DATABASE_URL"):  # optional: without it Jarvis keeps vectors in memory and skips the audit trail
         from jarvis.db import connect
         db = connect(os.environ["DATABASE_URL"])
@@ -27,7 +27,10 @@ def snow_from_env(search=None):
             from jarvis.db import VectorStore
             store = VectorStore(db, MODEL)
         semantic = SemanticIndex(store=store)
-    return Snow(os.environ["SNOW_INSTANCE"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"], semantic, db)
+        if db:  # docs-as-code knowledge base in PostgreSQL, sharing the embedding model
+            from jarvis.knowledge import KnowledgeBase
+            knowledge = KnowledgeBase(db, semantic.embedder, MODEL)
+    return Snow(os.environ["SNOW_INSTANCE"], os.environ["SNOW_USER"], os.environ["SNOW_PASSWORD"], semantic, db, knowledge)
 
 
 def llm_from_env():

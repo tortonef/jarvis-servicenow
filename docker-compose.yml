@@ -15,6 +15,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U jarvis -d jarvis"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   jarvis:
     build: .

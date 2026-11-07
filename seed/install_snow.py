@@ -1,13 +1,14 @@
 """Install the ServiceNow side of push mode: system properties, a Script Include, the "Ask Jarvis" button and async
 Business Rules on new incidents (suggestion + triage) and on resolved incidents (KB draft), plus the
-"Unlock account (Jarvis)" approval button. Safe to re-run (updates records by name).
+"Unlock account (Jarvis)" approval button, the "Helios Group IT" knowledge base and the Jarvis KB API that publishes
+the docs repository into it. Safe to re-run (updates records by name).
 
 Usage: python -m seed.install_snow https://<public-url-of-jarvis-server>
 """
 import os
 import sys
 
-from jarvis.config import snow_from_env
+from jarvis.config import KB_TITLE, snow_from_env
 from jarvis.snow import APPROVAL
 
 CLIENT = """var JarvisClient = Class.create();
@@ -44,6 +45,43 @@ new JarvisClient().ask(current.sys_id, '/remediate');
 gs.addInfoMessage('Approved: Jarvis is unlocking the account.');
 action.setRedirectURL(current);"""
 
+# Server-side because the Table API cannot edit or publish articles once they are published (it answers 403)
+KB_API = """(function process(request, response) {
+    var b = request.body.data;
+    if (!b || !b.doc_id || !b.kb || (!b.retire && (!b.title || !b.html))) {
+        response.setStatus(400);
+        return { error: 'doc_id and kb are required, plus title and html unless retire is true' };
+    }
+    var kb = new GlideRecord('kb_knowledge_base');
+    if (!kb.get('title', b.kb)) {
+        response.setStatus(404);
+        return { error: 'knowledge base not found: ' + b.kb };
+    }
+    var tag = 'jarvis-doc:' + b.doc_id;
+    var gr = new GlideRecord('kb_knowledge');
+    gr.addQuery('kb_knowledge_base', kb.getUniqueValue());
+    gr.addQuery('meta', 'CONTAINS', tag);
+    gr.addQuery('workflow_state', '!=', 'retired');
+    gr.orderByDesc('sys_created_on');
+    gr.query();
+    var found = gr.next();
+    if (b.retire) {
+        if (found) { gr.workflow_state = 'retired'; gr.update(); }
+        return { retired: found, number: found ? String(gr.number) : null };
+    }
+    if (!found) {
+        gr.initialize();
+        gr.kb_knowledge_base = kb.getUniqueValue();
+    }
+    gr.short_description = b.title;
+    gr.text = b.html;
+    gr.meta = tag + (b.keywords ? ' ' + b.keywords : '');
+    if (!found) gr.insert();  // the KB rules force new articles to draft...
+    gr.workflow_state = 'published';  // ...so publish with a second write: the review already happened in Git
+    gr.update();
+    return { number: String(gr.number), sys_id: gr.getUniqueValue(), created: !found };
+})(request, response);"""
+
 RESOLVED_RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id, '/kb-draft');
 })(current, previous);"""
@@ -66,6 +104,17 @@ def main():
 
 
 def install(snow, endpoint, token):
+    # Own KB with "Instant Publish": the stock "IT" KB has an approval flow; here the approval is the pull request
+    if not snow.first("kb_knowledge_base", f"title={KB_TITLE}"):
+        flow = snow.first("sys_hub_flow", "name=Knowledge - Instant Publish")
+        snow.create("kb_knowledge_base", {"title": KB_TITLE, "kb_publish_flow": flow["sys_id"] if flow else ""})
+        print(f"kb_knowledge_base: {KB_TITLE} created")
+    api = upsert(snow, "sys_ws_definition", "service_id=jarvis_kb",
+                 {"name": "Jarvis KB", "service_id": "jarvis_kb", "active": "true",
+                  "short_description": "Publishes the Helios docs repository into the knowledge base"})
+    upsert(snow, "sys_ws_operation", f"web_service_definition={api['sys_id']}^relative_path=/articles",
+           {"name": "articles", "web_service_definition": api["sys_id"], "http_method": "POST", "relative_path": "/articles",
+            "active": "true", "requires_authentication": "true", "operation_script": KB_API})
     upsert(snow, "sys_properties", "name=jarvis.endpoint",
            {"name": "jarvis.endpoint", "value": endpoint.rstrip("/"), "type": "string",
             "description": "Public URL of the Jarvis server"})

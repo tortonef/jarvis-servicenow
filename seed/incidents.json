@@ -1,6 +1,6 @@
 {
   "resolved": [
-    {"short_description": "VPN won't connect from home, error 809", "description": "Since last night the VPN returns error 809. Internet works fine.", "close_notes": "UDP ports blocked by the home router. Configured SSL gateway vpn-ssl.corp.local, connection OK."},
+    {"short_description": "VPN won't connect from home, error 809", "description": "Since last night the VPN returns error 809. Internet works fine.", "close_notes": "UDP ports blocked by the home router. Configured SSL gateway vpn-ssl.helios.local, connection OK."},
     {"short_description": "Outlook keeps asking for password", "description": "After the password change Outlook asks for credentials every 5 minutes.", "close_notes": "Removed MicrosoftOffice16_Data credentials from Credential Manager. Fixed."},
     {"short_description": "User locked out in AD 3 times today", "description": "The account keeps locking out since Monday's password change.", "close_notes": "Old password saved in the iPhone Mail app. Updated, no further lockouts."},
     {"short_description": "2nd floor printer not printing, queue stuck", "description": "Documents stay in the queue with an error status.", "close_notes": "Cleared the spool folder and restarted the spooler on the PC. Printing OK."},
