@@ -1,0 +1,15 @@
+# Jarvis's PostgreSQL, read only: grafana_reader is created by Jarvis at startup with SELECT rights only
+apiVersion: 1
+datasources:
+  - name: Jarvis
+    uid: jarvis-db
+    type: grafana-postgresql-datasource
+    url: db:5432
+    user: grafana_reader
+    isDefault: true
+    jsonData:
+      database: jarvis
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: $GRAFANA_DB_PASSWORD

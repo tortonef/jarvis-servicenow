@@ -183,6 +183,16 @@ Set `MID_USER`, `MID_PASSWORD` and the `LAB_*` passwords in `.env` first, and va
 
 **Weekly report.** Every Monday Jarvis posts to Slack: incidents answered and those with no matching article, self-service deflection, procedures run by risk and status, failures, Problems proposed and documents due for review (`python -m jarvis.report` prints it any time).
 
+### Quality loop
+
+**Agents rate every suggestion.** Tickets with a Jarvis suggestion get *Jarvis: helpful* and *Jarvis: not helpful* buttons. The vote is a work note in the agent's name; Jarvis reads author and verdict back from ServiceNow (the request only names the ticket), stores one vote per agent per ticket and links it to the answer it rates.
+
+**A dashboard of what Jarvis saved.** `docker compose up` also starts Grafana on [127.0.0.1:3300](http://127.0.0.1:3300) (user `admin`, password `GRAFANA_ADMIN_PASSWORD`) with a provisioned dashboard: incidents answered, share of helpful votes, self-service deflection, procedures done, and an **estimate** of agent hours saved, with the minutes per answer, procedure and avoided ticket as editable assumptions at the top. Tables list knowledge gaps (answers with no article), suggestions rated not helpful and docs due for review. Grafana logs in as `grafana_reader`, a role Jarvis creates with `SELECT` rights only.
+
+<p align="center"><img src="docs/images/grafana.png" width="760" alt="Grafana dashboard: incidents answered, helpful votes, deflection, procedures done, time saved, activity per day"></p>
+
+**Knowledge gaps become pull requests.** With `GITHUB_TOKEN` set (a fine-grained token for this repository only, *Contents* and *Pull requests* read/write), a resolved incident whose fix is not documented becomes a pull request adding `knowledge/articles/<title>-<incident>.md`, with front matter filled in and a temporary id `KB-<incident>-001`. CI validates it like any doc, a human reviews and merges it, and the next sync publishes it to ServiceNow. Model output is flattened to one line per field, so it cannot add sections or break the front matter. Without a token, Jarvis falls back to a draft article in ServiceNow.
+
 ### P1 alerts on Slack
 
 When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack channel as soon as its suggestion is ready: title linked to the incident, probable cause, confidence and KB sources, so the on-call team starts from a diagnosis instead of a bare alert. Set `NOTIFY_WEBHOOK_URL` to a Slack [Incoming Webhook](https://api.slack.com/messaging/webhooks); leave it empty to disable.
@@ -202,7 +212,7 @@ When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack chann
 | **Dedicated KB with Instant Publish** | The PDI's "IT" KB has an approval flow; in *Helios Group IT* the approval is the pull request, and the stock KBs stay untouched. |
 | **OpenAI-compatible API** | Groq, local Ollama, Gemini, OpenAI or Claude: just change `.env`. |
 | **Triage never overrides people** | LLM output is checked against ServiceNow's own categories and groups; invented values are dropped, fields an agent already set are left alone, and a triage failure never blocks the resolution note. |
-| **KB drafts need a human** | Jarvis only creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
+| **KB drafts need a human** | Jarvis only opens pull requests or creates drafts; publishing stays a human decision. Model output is HTML-escaped before it goes into the article, and a `covered_by` answer is trusted only if it names an article Jarvis actually showed the model. |
 | **Actions are layered allowlists** | The model never picks or writes an action. The catalog, Jarvis's parameter checks, the MID Script Includes (named functions, `OU=Staff` only, allowed hosts and verbs), AD delegation (`svc_jarvis` may write `lockoutTime` and nothing else) and an SSH forced command on each server must all agree. A call to `/approve` without a pending proposal and the agent's approval note does nothing, even with a valid token. |
 | **Alerts can't be hijacked by ticket text** | Ticket text is escaped before it reaches Slack, so a title like `<!channel>` cannot ping the whole channel. A Slack outage is logged and never costs the work note. |
 | **On-prem only through the MID Server** | ServiceNow's own outbound-only bridge: no firewall opening into the lab, ServiceNow keeps the ECC queue as an audit trail, and Jarvis can only call named MID functions. |
@@ -291,6 +301,7 @@ jarvis/procedures.py procedure catalog: validation, parameters, proposal and ver
 jarvis/selfservice.py portal answers from end-user articles, deflection tracking
 jarvis/problems.py Problem proposals from clusters of similar incidents
 jarvis/report.py   weekly health report
+jarvis/docs_pr.py  knowledge gaps as pull requests on the docs repo
 procedures/        catalog.yaml: what Jarvis may run, at which risk level
 jarvis/knowledge.py docs as code: validate, ingest, hybrid search, publish to the KB
 knowledge/         the Helios Group knowledge base (articles + runbooks)
@@ -301,6 +312,7 @@ jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
 seed/              demo incidents and user, install_snow.py, mid/ (MID Script Includes), portal/ (Ask Jarvis widget)
+grafana/           provisioned datasource (read-only role) and quality dashboard
 lab/               on-prem lab: dc01 (Samba AD), app01/app02, the MID Server image, lock-user.sh
 tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI quality gate)
 ```
@@ -315,4 +327,4 @@ tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI
 - [x] **Step 6**: semantic search with local embeddings
 - [x] **Step 7**: Slack alert for P1 tickets
 
-**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code. Phase 2 done: on-prem lab and MID Server. Phase 3 done: procedure catalog. Phase 4 done: self-service, L2 through Change, Problems, weekly report). Next up: the quality loop (feedback buttons, dashboards, KB gaps as pull requests).
+**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code. Phase 2 done: on-prem lab and MID Server. Phase 3 done: procedure catalog. Phase 4 done: self-service, L2 through Change, Problems, weekly report. Phase 5 done: feedback buttons, Grafana dashboard, KB gaps as pull requests).

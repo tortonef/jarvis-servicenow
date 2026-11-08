@@ -84,7 +84,7 @@ def register_tunnel(snow, token, metrics_url, tries=60):
 
 def main():
     from jarvis.config import llm_from_env, snow_from_env
-    from jarvis.main import handle, handle_approve, handle_diagnose, handle_implement, handle_resolved
+    from jarvis.main import handle, handle_approve, handle_diagnose, handle_feedback, handle_implement, handle_resolved
 
     token = os.environ["JARVIS_TOKEN"]
     if len(token) < 16:
@@ -110,8 +110,9 @@ def main():
     api = {"/ask": lambda d: selfservice.ask(d, snow, llm, model), "/ask-outcome": lambda d: selfservice.outcome(d, snow)}
     server = make_server(port, token, {"/suggest": job(handle), "/kb-draft": job(handle_resolved),
                                        "/approve": job(handle_approve), "/diagnose": job(handle_diagnose),
-                                       "/implement": job(handle_implement, "change_request")}, host, api)
-    print(f"Jarvis listening on http://{host}:{port} (/suggest, /kb-draft, /approve, /diagnose, /implement, /ask, /ask-outcome)")
+                                       "/implement": job(handle_implement, "change_request"),
+                                       "/feedback": job(handle_feedback)}, host, api)
+    print(f"Jarvis listening on http://{host}:{port} (/suggest, /kb-draft, /approve, /diagnose, /implement, /feedback, /ask, /ask-outcome)")
     threading.Thread(target=background, args=(snow, token), daemon=True).start()
     server.serve_forever()
 

@@ -29,6 +29,8 @@ PROPOSAL = "[Jarvis] Proposed procedure"
 APPROVAL = "Approved Jarvis procedure"
 OUTCOME = "[Jarvis] Procedure"
 CHANGE_REQUESTED = "[Jarvis] Change requested:"  # L2: approval happens on the Change, not with a button
+FEEDBACK = "Jarvis feedback:"  # written by the rating buttons in the agent's name
+SUGGESTION = "[Jarvis] Resolution suggestion"
 
 
 class Snow:
@@ -79,6 +81,18 @@ class Snow:
 
     def get_user(self, sys_id):
         return self.first("sys_user", f"sys_id={sys_id}")
+
+    def latest_feedback(self, incident_sys_id):
+        """(agent user name, helpful) from the newest rating note on the incident, or None."""
+        note = self.query("sys_journal_field", f"element=work_notes^element_id={incident_sys_id}"
+                                               f"^valueSTARTSWITH{FEEDBACK}^ORDERBYDESCsys_created_on",
+                          ["value", "sys_created_by"], 1)
+        if not note:
+            return None
+        verdict = note[0]["value"][len(FEEDBACK):].strip().lower()
+        if not verdict.startswith(("helpful", "not helpful")):
+            return None
+        return note[0]["sys_created_by"], verdict.startswith("helpful")
 
     def approval_for_proposal(self, incident_sys_id):
         """User name of the agent who approved the latest proposal, or None. ServiceNow's own clock orders the notes."""

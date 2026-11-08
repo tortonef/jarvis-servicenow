@@ -1,9 +1,11 @@
 """PostgreSQL + pgvector: migrations, persistent embedding cache, suggestion audit."""
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import psycopg
+from psycopg import sql
 
 MIGRATIONS = Path(__file__).parent.parent / "db" / "migrations"
 
@@ -12,7 +14,20 @@ def connect(url):
     # shortcut: one autocommit connection shared by the server threads (psycopg serializes them); use a pool under load
     conn = psycopg.connect(url, autocommit=True)
     migrate(conn)
+    if os.getenv("GRAFANA_DB_PASSWORD"):
+        ensure_reader(conn, os.environ["GRAFANA_DB_PASSWORD"])
     return conn
+
+
+def ensure_reader(conn, password, role="grafana_reader"):
+    """Read-only login for dashboards: SELECT on Jarvis's tables, nothing else. Idempotent; resets the password."""
+    exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone()
+    verb = "ALTER" if exists else "CREATE"
+    conn.execute(sql.SQL(verb + " ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(role), sql.Literal(password)))
+    for stmt in ("GRANT CONNECT ON DATABASE {db} TO {r}", "GRANT USAGE ON SCHEMA public TO {r}",
+                 "GRANT SELECT ON ALL TABLES IN SCHEMA public TO {r}",
+                 "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {r}"):
+        conn.execute(sql.SQL(stmt).format(db=sql.Identifier(conn.info.dbname), r=sql.Identifier(role)))
 
 
 def migrate(conn):
@@ -61,6 +76,15 @@ class VectorStore:
 def record_suggestion(conn, ticket, kind, model=None, sources=(), detail=None):
     conn.execute("INSERT INTO suggestion (ticket, kind, model, sources, detail) VALUES (%s, %s, %s, %s, %s)",
                  (ticket, kind, model, json.dumps(list(sources)), json.dumps(detail or {})))
+
+
+def record_feedback(conn, incident, agent, helpful):
+    """Upsert the agent's vote on this ticket, linked to Jarvis's latest answer for it."""
+    conn.execute(
+        "INSERT INTO feedback (ticket, incident_sys_id, suggestion_id, agent, helpful) VALUES (%s, %s, "
+        "(SELECT max(id) FROM suggestion WHERE ticket = %s AND kind = 'answer'), %s, %s) "
+        "ON CONFLICT (incident_sys_id, agent) DO UPDATE SET helpful = EXCLUDED.helpful, created_at = now()",
+        (incident["number"], incident["sys_id"], incident["number"], agent, helpful))
 
 
 class Executions:

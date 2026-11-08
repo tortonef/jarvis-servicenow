@@ -258,7 +258,7 @@ sequenceDiagram
 | **2. On-prem lab + bridge** ✅ | Samba AD DC (`dc01`, `helios.local`) in Docker, MID Server from ServiceNow's official container recipe, ECC queue JavascriptProbe to a MID Script Include, read-only AD lockout check | A button in ServiceNow reads a real AD account's lockout status | done |
 | **3. Procedure catalog** ✅ | `procedures/catalog.yaml` with 5 procedures (3 L0, 2 L1), rules for proposing and verifying, L0 auto-diagnostics in every suggestion, generic L1 approval button, `execution` audit table, lab servers app01/app02 with an SSH forced command, AD delegation | "Can't log in" → diagnosis from AD → one-click unlock in the real lab AD | done |
 | **4. Processes** ✅ | Self-service portal page with deflection tracking, L2 procedures through an approved Normal Change built from the runbook, Problem proposals from clusters, weekly report to Slack | Full L1 and L2 journeys end to end | done |
-| **5. Quality loop** | Feedback buttons, Grafana dashboards, KB-gap pull requests, stale-doc report | Dashboard showing what Jarvis saved this week | ~1 week |
+| **5. Quality loop** ✅ | Helpful / not helpful buttons stored per agent, Grafana dashboard on a read-only role (time saved as an editable estimate, knowledge gaps, docs due for review), KB gaps as pull requests on the docs repo | Dashboard showing what Jarvis saved this week | done |
 
 ### Phase 0 notes
 
@@ -271,7 +271,7 @@ sequenceDiagram
 - **Docs live in this repository** (`knowledge/`), not a separate one: same pull request flow, one CI. Split it out when another team owns the docs.
 - **Jarvis polls GitHub** instead of CI pushing to the database: GitHub Actions cannot reach a database on a laptop. Public repo, unauthenticated API, one call per poll.
 - **Publishing needs a Scripted REST API** (*Jarvis KB*): the Table API answers 403 when editing a published article, and new articles are forced to draft on insert, so the script publishes with a separate write.
-- **KB drafts from resolved tickets still go to ServiceNow** (step 4 of the demo). Moving them to pull requests is part of Phase 5.
+- **KB drafts from resolved tickets still go to ServiceNow** (step 4 of the demo). Moving them to pull requests is part of Phase 5 (done: with `GITHUB_TOKEN` set they become pull requests).
 
 ### Phase 2 notes
 
@@ -294,6 +294,14 @@ sequenceDiagram
 - **The Change model does the approving.** On the PDI, a Normal Change cannot jump states without its approvals (the *Change Model: Check State Transition* rule aborts the update), which is exactly the control L2 needs.
 - **This PDI has no `incident.problem_id`** (it comes with the Problem Management plugin): incidents point to their Problem through `task.parent`.
 - **Quick tunnels expire.** Jarvis re-registers when the URL changes, but an expired quick tunnel needs `docker compose restart tunnel`; a named tunnel on an owned domain removes the issue.
+
+### Phase 5 notes
+
+- **Time saved is an estimate.** Nobody measures how long an agent would have taken; the dashboard multiplies counts by minutes the reader can change, and says so.
+- **The vote lives in ServiceNow first.** The button writes a work note in the agent's name and Jarvis copies it into PostgreSQL, so the ticket shows who rated what and the request carries no vote that could be forged.
+- **The rating buttons need a valid form.** They are server-side UI actions, so a ticket with an empty mandatory field (a monitoring ticket with no caller) must be fixed before voting.
+- **Gap ids carry the incident number** (`KB-INC0010042-001`): two open pull requests can never collide, and the reviewer renames it to a proper area before merging.
+- **The stale-doc report is the *Docs due for review* table** plus the weekly Slack report; no separate job.
 
 ## 10. Open questions
 

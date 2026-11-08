@@ -117,4 +117,4 @@ def draft_article(incident, candidates, llm, model):
             + (f"<h3>Cause</h3><p>{e(cause)}</p>" if cause else "")
             + "<h3>Resolution</h3><ol>" + "".join(f"<li>{e(s)}</li>" for s in steps) + "</ol>"
             + f"<p><em>Drafted by Jarvis from {e(incident['number'])}. Review before publishing.</em></p>")
-    return {"title": title.strip()[:160], "text": text}
+    return {"title": title.strip()[:160], "text": text, "symptom": str(out.get("symptom") or ""), "cause": cause, "steps": steps}

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from jarvis.config import KB_TITLE, snow_from_env
-from jarvis.snow import APPROVAL, OUTCOME, PROPOSAL
+from jarvis.snow import APPROVAL, FEEDBACK, OUTCOME, PROPOSAL, SUGGESTION
 
 CLIENT = """var JarvisClient = Class.create();
 JarvisClient.prototype = {
@@ -43,6 +43,17 @@ JarvisClient.prototype = {
         } catch (e) {
             return { status: 0, body: {} };
         }
+    },
+
+    // True when Jarvis has posted a resolution suggestion on the incident (the rating buttons need one)
+    hasSuggestion: function(sysId) {
+        var j = new GlideRecord('sys_journal_field');
+        j.addQuery('element_id', String(sysId));
+        j.addQuery('element', 'work_notes');
+        j.addQuery('value', 'STARTSWITH', '""" + SUGGESTION + """');
+        j.setLimit(1);
+        j.query();
+        return j.hasNext();
     },
 
     // True while the latest Jarvis procedure note on the incident is a proposal nobody approved yet
@@ -128,6 +139,16 @@ IMPLEMENT_RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id, '/implement');
 })(current, previous);"""
 
+def rating_button(helpful):
+    """The vote is a work note in the agent's name: Jarvis reads author and verdict back from ServiceNow."""
+    verdict = "helpful" if helpful else "not helpful"
+    return (f"current.work_notes = '{FEEDBACK} {verdict} (' + gs.getUserDisplayName() + ').';\n"
+            "current.update();\n"
+            "new JarvisClient().ask(current.sys_id, '/feedback');\n"
+            "gs.addInfoMessage('Thanks: your rating of the Jarvis suggestion is recorded.');\n"
+            "action.setRedirectURL(current);")
+
+
 RESOLVED_RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id, '/kb-draft');
 })(current, previous);"""
@@ -196,6 +217,13 @@ def install(snow, endpoint, token):
             "condition": "current.active && !current.caller_id.nil()", "form_button": "true", "workspace_form_button": "true",
             "client": "false", "active": "true", "order": "105",
             "hint": "Read-only: check the caller's lockout state in Active Directory"})
+    for helpful in (True, False):
+        name = f"Jarvis: {'helpful' if helpful else 'not helpful'}"
+        upsert(snow, "sys_ui_action", f"table=incident^name={name}",
+               {"name": name, "table": "incident", "action_name": f"jarvis_rate_{'up' if helpful else 'down'}",
+                "script": rating_button(helpful), "condition": "new JarvisClient().hasSuggestion(current.sys_id)",
+                "form_button": "true", "workspace_form_button": "true", "client": "false", "active": "true",
+                "order": "120" if helpful else "121", "hint": "Rate Jarvis's resolution suggestion on this ticket"})
     install_portal(snow)
     # L2 procedures: Jarvis acts when the approved Change it filed moves to Implement
     upsert(snow, "sys_script", "collection=change_request^name=Jarvis: implement approved change",

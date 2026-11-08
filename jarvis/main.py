@@ -262,6 +262,16 @@ def execute(snow, incident, pending, approved_by):
     return ok, note
 
 
+def handle_feedback(incident, snow, llm=None, model=None):
+    """A rating button was clicked: the vote and its author come from the agent's note in ServiceNow, not the request."""
+    vote = snow.latest_feedback(incident["sys_id"])
+    if not vote or not snow.db:
+        return print(f"{incident['number']}: no feedback note to record")
+    from jarvis.db import record_feedback
+    record_feedback(snow.db, incident, *vote)
+    print(f"{incident['number']}: feedback from {vote[0]}: {'helpful' if vote[1] else 'not helpful'}")
+
+
 def handle_resolved(incident, snow, llm, model):
     """Turn a resolution nobody documented yet into a draft KB article, linked to the incident."""
     if not (incident.get("close_notes") or "").strip():
@@ -275,6 +285,16 @@ def handle_resolved(incident, snow, llm, model):
     if "covered_by" in result:
         note = f"[Jarvis] KB check: this fix is already documented in {result['covered_by']}. No new article needed."
         snow.audit(incident["number"], "kb_covered", [result["covered_by"]])
+    elif os.getenv("GITHUB_TOKEN") and os.getenv("DOCS_REPO"):  # docs as code: the gap becomes a pull request
+        from jarvis import docs_pr
+        path, text = docs_pr.article(incident, result)
+        url = docs_pr.open_pr(os.environ["DOCS_REPO"], os.environ["GITHUB_TOKEN"], incident, result["title"], path, text,
+                              os.getenv("DOCS_REF", "main"))
+        if url is None:
+            return print(f"{incident['number']}: knowledge article already proposed")
+        snow.audit(incident["number"], "kb_draft", [url], {"title": result["title"]})
+        note = (f"[Jarvis] Proposed knowledge article \"{result['title']}\" from this resolution: {url}\n"
+                "It is a pull request: once reviewed and merged, it is published to the knowledge base.")
     else:
         art = snow.create("kb_knowledge", {"short_description": result["title"], "text": result["text"],
                                            "kb_knowledge_base": snow.kb_base(KB_TITLE)["sys_id"], "source": incident["sys_id"]})
