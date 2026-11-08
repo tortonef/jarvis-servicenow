@@ -173,11 +173,11 @@ Set `MID_USER`, `MID_PASSWORD` and the `LAB_*` passwords in `.env` first, and va
 
 **End users: self-service before the ticket.** The Service Portal page `/sp?id=jarvis_help` has an *Ask Jarvis* widget. Jarvis answers only from articles written for employees (runbooks are never shown), in plain steps the user can do alone, and treats the question as data, not instructions. The user clicks *This solved my problem* or *open a ticket*; the ticket then carries the question and the answer already tried, so the agent's suggestion starts from there. Every answer and its outcome is stored, which gives the deflection rate.
 
-<!-- docs/images/self-service.png -->
+<p align="center"><img src="docs/images/self-service.png" width="760" alt="Ask Jarvis on the Service Portal: answer from end-user articles, solved without a ticket"></p>
 
 **Maintenance: L2 procedures go through Change.** Restarting the portal affects other users, so `portal_restart` is L2: when `portal_health` reports it down, Jarvis does not offer a button. It files a Normal Change built from runbook RB-SRV-002 (implementation plan from *Pre-checks* and *Steps*, backout plan from *Rollback*, test plan from the `verify` rule) and sends it for approval. ServiceNow's Change model enforces the group and CAB approvals; when the approved Change moves to *Implement*, Jarvis re-checks, restarts the service through the MID Server, verifies, closes the Change as *successful* or *unsuccessful* and resolves the incident.
 
-<!-- docs/images/change-l2.png -->
+<p align="center"><img src="docs/images/change-l2.png" width="760" alt="L2 procedure: Change filed by Jarvis from the runbook, approved, implemented, verified and closed"></p>
 
 **Problems from clusters.** When at least 3 open incidents from the last 24 hours look alike (semantic similarity 0.8 or more), Jarvis files a Problem with the incidents, its likely cause, and links them; later look-alikes join the open Problem. Similarity measures symptoms, not causes: a hotel VPN error scores 0.82 against an office-wide VPN outage, so the Problem is a proposal and the problem manager unlinks what does not belong.
 
