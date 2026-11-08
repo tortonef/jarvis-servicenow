@@ -49,8 +49,8 @@ def check(catalog):
                 errors.append(f"{where}: param {name} needs from: caller or ticket")
             elif not (spec.get("pattern") or spec.get("enum")):
                 errors.append(f"{where}: param {name} needs a pattern or an enum")  # nothing unvalidated reaches the MID
-        if p.get("risk") == "L1" and not (p.get("propose_if") and p.get("verify")):
-            errors.append(f"{where}: L1 procedures need propose_if and verify")
+        if p.get("risk") in ("L1", "L2") and not (p.get("propose_if") and p.get("verify")):
+            errors.append(f"{where}: L1 and L2 procedures need propose_if and verify")
         for key in ("propose_if", "verify"):
             cond = p.get(key)
             if cond is None:

@@ -93,6 +93,16 @@ class Executions:
             "ORDER BY id DESC LIMIT 1", (incident_sys_id,)).fetchone()
         return {"id": row[0], "procedure_id": row[1], "params": row[2]} if row else None
 
+    def get(self, execution_id):
+        row = self.conn.execute(
+            "SELECT id, ticket, incident_sys_id, procedure_id, risk, params, status, change_number FROM execution WHERE id = %s",
+            (execution_id,)).fetchone()
+        keys = ("id", "ticket", "incident_sys_id", "procedure_id", "risk", "params", "status", "change_number")
+        return dict(zip(keys, row)) if row else None
+
+    def set_change(self, execution_id, change_number):
+        self.conn.execute("UPDATE execution SET change_number = %s WHERE id = %s", (change_number, execution_id))
+
     def finish(self, execution_id, status, approved_by=None, result=None, verify_result=None):
         self.conn.execute(
             "UPDATE execution SET status = %s, approved_by = %s, result = %s, verify_result = %s, finished_at = now() "

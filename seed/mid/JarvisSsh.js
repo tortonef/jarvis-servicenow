@@ -2,7 +2,7 @@
 // The target binds the key to /usr/local/bin/jarvis-agent, which knows the same verbs: two independent allowlists.
 var JarvisSsh = Class.create();
 JarvisSsh.prototype = {
-    VERBS: ['disk_usage', 'clean_logs', 'portal_health'],
+    VERBS: ['disk_usage', 'clean_logs', 'portal_health', 'restart_portal'],
 
     initialize: function() {
         this.hosts = String(Packages.java.lang.System.getenv().get('JARVIS_SSH_HOSTS') || '').split(',');

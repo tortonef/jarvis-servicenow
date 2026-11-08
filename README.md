@@ -169,6 +169,20 @@ docker compose --profile lab up -d --build
 
 Set `MID_USER`, `MID_PASSWORD` and the `LAB_*` passwords in `.env` first, and validate the MID Server once in ServiceNow (**MID Server > Servers > helios-mid > Validate**).
 
+### Support processes
+
+**End users: self-service before the ticket.** The Service Portal page `/sp?id=jarvis_help` has an *Ask Jarvis* widget. Jarvis answers only from articles written for employees (runbooks are never shown), in plain steps the user can do alone, and treats the question as data, not instructions. The user clicks *This solved my problem* or *open a ticket*; the ticket then carries the question and the answer already tried, so the agent's suggestion starts from there. Every answer and its outcome is stored, which gives the deflection rate.
+
+<!-- docs/images/self-service.png -->
+
+**Maintenance: L2 procedures go through Change.** Restarting the portal affects other users, so `portal_restart` is L2: when `portal_health` reports it down, Jarvis does not offer a button. It files a Normal Change built from runbook RB-SRV-002 (implementation plan from *Pre-checks* and *Steps*, backout plan from *Rollback*, test plan from the `verify` rule) and sends it for approval. ServiceNow's Change model enforces the group and CAB approvals; when the approved Change moves to *Implement*, Jarvis re-checks, restarts the service through the MID Server, verifies, closes the Change as *successful* or *unsuccessful* and resolves the incident.
+
+<!-- docs/images/change-l2.png -->
+
+**Problems from clusters.** When at least 3 open incidents from the last 24 hours look alike (semantic similarity 0.8 or more), Jarvis files a Problem with the incidents, its likely cause, and links them; later look-alikes join the open Problem. Similarity measures symptoms, not causes: a hotel VPN error scores 0.82 against an office-wide VPN outage, so the Problem is a proposal and the problem manager unlinks what does not belong.
+
+**Weekly report.** Every Monday Jarvis posts to Slack: incidents answered and those with no matching article, self-service deflection, procedures run by risk and status, failures, Problems proposed and documents due for review (`python -m jarvis.report` prints it any time).
+
 ### P1 alerts on Slack
 
 When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack channel as soon as its suggestion is ready: title linked to the incident, probable cause, confidence and KB sources, so the on-call team starts from a diagnosis instead of a bare alert. Set `NOTIFY_WEBHOOK_URL` to a Slack [Incoming Webhook](https://api.slack.com/messaging/webhooks); leave it empty to disable.
@@ -192,6 +206,8 @@ When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack chann
 | **Actions are layered allowlists** | The model never picks or writes an action. The catalog, Jarvis's parameter checks, the MID Script Includes (named functions, `OU=Staff` only, allowed hosts and verbs), AD delegation (`svc_jarvis` may write `lockoutTime` and nothing else) and an SSH forced command on each server must all agree. A call to `/approve` without a pending proposal and the agent's approval note does nothing, even with a valid token. |
 | **Alerts can't be hijacked by ticket text** | Ticket text is escaped before it reaches Slack, so a title like `<!channel>` cannot ping the whole channel. A Slack outage is logged and never costs the work note. |
 | **On-prem only through the MID Server** | ServiceNow's own outbound-only bridge: no firewall opening into the lab, ServiceNow keeps the ECC queue as an audit trail, and Jarvis can only call named MID functions. |
+| **L2 needs an approved Change** | Jarvis files the Change, but only ServiceNow's Change model can move it to Implement; Jarvis then re-reads the Change, needs it approved and in Implement, and its correlation id and number must match the pending L2 in its log. |
+| **Self-service sees only end-user articles** | The portal search filters on the document audience; runbooks and admin procedures never reach employees, and the answer prompt refuses admin steps. |
 | **Work note, not a comment** | The suggestion is visible to agents only, never to the end user. |
 
 ## Quickstart
@@ -224,11 +240,11 @@ Requires Docker. Set `POSTGRES_PASSWORD` in `.env`, then:
 docker compose up -d --build
 ```
 
-This starts three containers: **PostgreSQL + pgvector** (embedding cache and an audit trail of every suggestion), the **Jarvis server**, and a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account needed). At startup Jarvis reads the tunnel's public URL and installs the ServiceNow side with it: system properties, `JarvisClient` Script Include, *Ask Jarvis* and *Unlock account (Jarvis)* buttons, async Business Rules on create and on resolve, the *Helios Group IT* knowledge base and the *Jarvis KB* API. Then it syncs `knowledge/` from GitHub and checks for new commits every `DOCS_POLL_SECONDS`. Quick-tunnel URLs change on every restart; Jarvis re-registers each time, so there is nothing to do by hand.
+This starts three containers: **PostgreSQL + pgvector** (embedding cache and an audit trail of every suggestion), the **Jarvis server**, and a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (no account needed). At startup Jarvis reads the tunnel's public URL and installs the ServiceNow side with it: system properties, `JarvisClient` Script Include, *Ask Jarvis*, *Check AD account (Jarvis)* and *Approve Jarvis procedure* buttons, async Business Rules on incidents and Changes, the *Helios Group IT* knowledge base, the *Jarvis KB* API and the self-service portal page. Then it syncs `knowledge/` from GitHub and checks for new commits every `DOCS_POLL_SECONDS`. Quick-tunnel URLs change when cloudflared restarts; Jarvis checks on every loop and re-registers. A quick tunnel can also expire (cloudflared logs *Tunnel not found*): run `docker compose restart tunnel` and Jarvis follows within one loop. For a stable URL, use a named Cloudflare tunnel on your own domain.
 
 The first start embeds the KB and the ticket history (about 30 seconds on the PDI); later starts load the vectors from PostgreSQL (about 3 seconds).
 
-Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Resolve an incident with resolution notes to get a KB draft. For auto-remediation, `seed` creates the demo user **Alex Rivera** in locked-out state (re-run it to lock him again): open an incident with Alex as caller saying the account is locked.
+Create an incident or click **Ask Jarvis** on an existing one: the work note appears in a few seconds. Resolve an incident with resolution notes to get a KB draft. For the procedures, lock the demo user **Alex Rivera** in the lab AD (`sh lab/lock-user.sh alex.rivera`) and open an incident with Alex as caller, or stop the portal on a server (`sh lab/break-portal.sh app01`) and open an incident about it.
 
 ### Push mode without Docker
 
@@ -272,6 +288,9 @@ jarvis/agent.py    prompts and LLM calls
 jarvis/semantic.py semantic ranking with cached local embeddings
 jarvis/mid.py      named MID Server calls through the ECC queue
 jarvis/procedures.py procedure catalog: validation, parameters, proposal and verification rules
+jarvis/selfservice.py portal answers from end-user articles, deflection tracking
+jarvis/problems.py Problem proposals from clusters of similar incidents
+jarvis/report.py   weekly health report
 procedures/        catalog.yaml: what Jarvis may run, at which risk level
 jarvis/knowledge.py docs as code: validate, ingest, hybrid search, publish to the KB
 knowledge/         the Helios Group knowledge base (articles + runbooks)
@@ -281,7 +300,7 @@ db/migrations/     SQL migrations, applied at startup
 jarvis/server.py   push mode: HTTP endpoint called by ServiceNow
 jarvis/main.py     polling mode + shared handle() logic
 jarvis/config.py   .env loading
-seed/              demo incidents and user, install_snow.py, mid/ (MID Script Includes)
+seed/              demo incidents and user, install_snow.py, mid/ (MID Script Includes), portal/ (Ask Jarvis widget)
 lab/               on-prem lab: dc01 (Samba AD), app01/app02, the MID Server image, lock-user.sh
 tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI quality gate)
 ```
@@ -296,4 +315,4 @@ tests/             tests + eval_search.py (keyword vs semantic vs hybrid, the CI
 - [x] **Step 6**: semantic search with local embeddings
 - [x] **Step 7**: Slack alert for P1 tickets
 
-**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code. Phase 2 done: on-prem lab and MID Server. Phase 3 done: procedure catalog). Next up: the end-user and maintenance support processes.
+**Next:** [Jarvis 2.0 architecture and roadmap](docs/architecture-plan.md) (Phase 0 done: Docker, PostgreSQL + pgvector, CI. Phase 1 done: knowledge base as code. Phase 2 done: on-prem lab and MID Server. Phase 3 done: procedure catalog. Phase 4 done: self-service, L2 through Change, Problems, weekly report). Next up: the quality loop (feedback buttons, dashboards, KB gaps as pull requests).

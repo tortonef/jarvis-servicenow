@@ -192,7 +192,7 @@ class KnowledgeBase:
                                   "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (commit_sha,))
         return changed, removed
 
-    def search(self, text, top=3):
+    def search(self, text, top=3, audience=None):
         """Hybrid search: meaning (pgvector cosine) plus a small full-text bonus for exact words and error codes.
         Returns records shaped like ServiceNow KB rows, so the prompt code stays the same."""
         from jarvis.db import to_pg
@@ -202,10 +202,15 @@ class KnowledgeBase:
             "SELECT d.id, d.kb_number, d.title, d.body, "
             "max(1 - (c.embedding <=> %(q)s::vector) + %(w)s * least(1, ts_rank_cd(c.fts, to_tsquery('english', %(t)s)))) AS score "
             "FROM chunk c JOIN document d ON d.id = c.document_id "
+            "WHERE %(aud)s::text IS NULL OR %(aud)s = ANY(d.audience) "  # self-service sees only end-user articles
             "GROUP BY d.id ORDER BY score DESC LIMIT %(k)s",
-            {"q": q, "t": terms or "''", "w": KEYWORD_WEIGHT if terms else 0, "k": top}).fetchall()
+            {"q": q, "t": terms or "''", "w": KEYWORD_WEIGHT if terms else 0, "k": top, "aud": audience}).fetchall()
         return [{"number": kb or doc_id, "doc_id": doc_id, "short_description": title, "text": body, "score": float(s)}
                 for doc_id, kb, title, body, s in rows if s >= MIN_SCORE]
+
+    def document(self, doc_id):
+        row = self.conn.execute("SELECT id, title, body, kb_number FROM document WHERE id = %s", (doc_id,)).fetchone()
+        return dict(zip(("id", "title", "body", "kb_number"), row)) if row else None
 
     def unpublished(self, docs):
         """Documents ServiceNow does not have yet (new, changed, or a previous sync failed)."""

@@ -54,3 +54,13 @@ portal_health:
   mid: {call: ssh, verb: portal_health}
   params:
     host: {from: ticket, enum: [app01, app02]}
+
+portal_restart:
+  title: Restart the helios-portal service on an application server
+  risk: L2
+  docs: [RB-SRV-002]
+  mid: {call: ssh, verb: restart_portal}
+  params:
+    host: {from: ticket, enum: [app01, app02]}
+  propose_if: {check: portal_health, field: healthy, equals: false}
+  verify: {check: portal_health, field: healthy, equals: true}

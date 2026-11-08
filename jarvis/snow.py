@@ -28,6 +28,7 @@ def rank(records, words, fields, top=3):
 PROPOSAL = "[Jarvis] Proposed procedure"
 APPROVAL = "Approved Jarvis procedure"
 OUTCOME = "[Jarvis] Procedure"
+CHANGE_REQUESTED = "[Jarvis] Change requested:"  # L2: approval happens on the Change, not with a button
 
 
 class Snow:
@@ -88,6 +89,17 @@ class Snow:
         if len(notes) >= 2 and notes[0]["value"].startswith(APPROVAL) and notes[1]["value"].startswith(PROPOSAL):
             return notes[0]["sys_created_by"]
         return None
+
+    def approvers(self, sys_id):
+        """Display names of the people who approved a record (e.g. a Change)."""
+        r = self.http.get(self.base + "sysapproval_approver", timeout=30, params={
+            "sysparm_query": f"sysapproval={sys_id}^state=approved", "sysparm_fields": "approver",
+            "sysparm_display_value": "true", "sysparm_limit": 20})
+        r.raise_for_status()
+        return sorted({a["approver"]["display_value"] for a in r.json()["result"] if a.get("approver")})
+
+    def get(self, table, sys_id):
+        return self.first(table, f"sys_id={sys_id}")
 
     def get_incident(self, sys_id):
         return self.first("incident", f"sys_id={sys_id}")

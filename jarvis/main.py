@@ -1,14 +1,16 @@
 """Poll ServiceNow for new incidents and post a Jarvis suggestion as a work note. Shared handlers for push mode."""
+import datetime
 import json
 import os
+import re
 import time
 from pathlib import Path
 
-from jarvis import procedures
+from jarvis import problems, procedures
 from jarvis.agent import draft_article, suggest, triage
 from jarvis.config import KB_TITLE, llm_from_env, snow_from_env
 from jarvis.notify import notify_p1
-from jarvis.snow import PROPOSAL
+from jarvis.snow import CHANGE_REQUESTED, OUTCOME, PROPOSAL
 
 # shortcut: processed ids in a local file; move to a custom field on incident if several Jarvis instances run
 STATE = Path("state.json")
@@ -57,7 +59,7 @@ def diagnose_and_plan(incident, snow, doc_ids):
         params = procedures.resolve(catalog[pid], incident, caller)
         if params is not None:
             checks[pid] = (params, run_check(snow, incident, pid, params))
-    for pid in (p for p in linked if catalog[p]["risk"] == "L1"):
+    for pid in (p for p in linked if catalog[p]["risk"] in ("L1", "L2")):
         cond, params = catalog[pid]["propose_if"], procedures.resolve(catalog[pid], incident, caller)
         if params is not None and cond["check"] in checks and procedures.holds(cond, checks[cond["check"]][1]):
             return checks, (pid, params)
@@ -92,6 +94,10 @@ def handle(incident, snow, llm, model):
                {"triage": fields, "checks": list(checks), "proposal": proposal and proposal[0]})
     if proposal and snow.executions:  # proposals need the execution log to be approved later
         propose(incident, snow, *proposal)
+    try:
+        problems.check_cluster(incident, snow, note)
+    except Exception as e:  # problem detection is a bonus too
+        print(f"{incident['number']}: problem check failed: {e}")
     if incident.get("priority") == "1":
         try:
             if notify_p1(incident, note, snow.instance):
@@ -104,12 +110,93 @@ def handle(incident, snow, llm, model):
 
 def propose(incident, snow, pid, params):
     proc = procedures.load()[pid]
-    snow.executions.propose(incident, pid, proc["risk"], params)
+    execution_id = snow.executions.propose(incident, pid, proc["risk"], params)
+    if proc["risk"] == "L2":
+        return request_change(incident, snow, pid, params, execution_id)
     snow.add_work_note(incident["sys_id"], (
         f"{PROPOSAL} ({proc['risk']}, needs your approval): {describe(pid, params)}.\n"
         f"Why: the read-only check {proc['propose_if']['check']} matched the rule in the procedure catalog.\n"
         "Approve with the 'Approve Jarvis procedure' button: Jarvis runs it on-prem through the MID Server, "
         "checks the result and resolves the ticket if the check passes."))
+
+
+def runbook_sections(snow, proc):
+    """'## ' sections of the procedure's first runbook, from the knowledge base (empty without one)."""
+    doc = snow.knowledge.document(proc["docs"][0]) if snow.knowledge else None
+    sections = {}
+    for part in re.split(r"(?m)^## ", doc["body"] if doc else ""):
+        if part.strip():
+            head, _, text = part.partition("\n")
+            # Change plan fields are plain text: drop Markdown code and bold marks
+            sections[head.strip().lower()] = text.replace("`", "").replace("**", "").strip()
+    return doc, sections
+
+
+def rule(cond):
+    """'healthy equals True' for a propose_if / verify condition."""
+    op = next(k for k in cond if k not in ("check", "field"))
+    return f"{cond['field']} {op.replace('_', ' ')} {cond[op]}"
+
+
+def request_change(incident, snow, pid, params, execution_id):
+    """L2: no approve button. Jarvis files a Normal Change built from the runbook and sends it for approval; it runs
+    the procedure only when the approved Change moves to Implement (handle_implement)."""
+    proc = procedures.load()[pid]
+    doc, sec = runbook_sections(snow, proc)
+    start = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)
+    group = snow.first("sys_user_group", "name=Software")
+    cond = proc["propose_if"]
+    change = snow.create("change_request", {
+        "type": "normal",
+        "short_description": f"Jarvis: {describe(pid, params)}",
+        "description": (f"Requested by Jarvis for incident {incident['number']}: the read-only check {cond['check']} matched "
+                        f"the catalog rule ({rule(cond)}).\nRunbook: {doc['id'] + ' ' + doc['title'] if doc else proc['docs'][0]}.\n"
+                        "Jarvis runs the procedure on-prem through the MID Server when this Change moves to Implement, "
+                        "verifies it and closes the Change."),
+        "justification": f"Incident {incident['number']}: {incident['short_description']}",
+        "implementation_plan": "\n\n".join(f"{label}:\n{sec[key]}" for key, label in
+                                           (("when to use", "When to use"), ("pre-checks", "Pre-checks"), ("steps", "Steps"))
+                                           if sec.get(key)) or proc["title"],
+        "backout_plan": sec.get("rollback") or "No rollback documented in the runbook: escalate to the owning team.",
+        "test_plan": f"Jarvis re-runs {proc['verify']['check']} and expects {rule(proc['verify'])}.",
+        "assignment_group": group["sys_id"] if group else "",
+        "start_date": start.strftime("%Y-%m-%d %H:%M:%S"),
+        "end_date": (start + datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "correlation_id": f"jarvis-exec-{execution_id}",
+    })
+    snow.update("change_request", change["sys_id"], {"state": "-4"})  # Assess: the Change model requests the approvals
+    snow.executions.set_change(execution_id, change["number"])
+    snow.add_work_note(incident["sys_id"], (
+        f"{CHANGE_REQUESTED} {change['number']} for an L2 procedure: {describe(pid, params)}.\n"
+        f"Why: the read-only check {cond['check']} matched the rule in the procedure catalog ({rule(cond)}).\n"
+        "It affects other users, so it needs an approved Change. The Change carries the runbook steps, pre-checks and "
+        "rollback; once approved and moved to Implement, Jarvis runs it, verifies it and closes the Change."))
+    print(f"{incident['number']}: L2 {pid} -> {change['number']} sent for approval")
+
+
+def handle_implement(change, snow, llm=None, model=None):
+    """The approved Change moved to Implement: run its L2 procedure, verify, close the Change, resolve the incident.
+    Trusts nothing in the request: re-reads the Change, needs it approved and in Implement, and the pending L2 in
+    Jarvis's log must match its correlation id and number."""
+    corr = change.get("correlation_id") or ""
+    if not re.fullmatch(r"jarvis-exec-\d+", corr):
+        return print(f"{change['number']}: not a Jarvis change")
+    pending = snow.executions.get(int(corr.rsplit("-", 1)[1])) if snow.executions else None
+    if not pending or pending["status"] != "proposed" or pending["risk"] != "L2" or pending["change_number"] != change["number"]:
+        return print(f"{change['number']}: no matching pending L2 procedure, refusing to act")
+    if change.get("approval") != "approved" or change.get("state") != "-1":
+        return print(f"{change['number']}: not approved and in Implement, refusing to act")
+    approvers = snow.approvers(change["sys_id"])
+    approved_by = change["number"] + (f" ({', '.join(approvers)})" if approvers else "")
+    incident = {"sys_id": pending["incident_sys_id"], "number": pending["ticket"]}
+    if still_valid(snow, incident, pending, "L2", approved_by):
+        ok, note = execute(snow, incident, pending, approved_by)
+    else:
+        ok, note = False, "[Jarvis] Procedure not run: it is no longer valid in the catalog."
+    snow.update("change_request", change["sys_id"], {"work_notes": note, "state": "0"})  # Review
+    snow.update("change_request", change["sys_id"], {"state": "3", "close_code": "successful" if ok else "unsuccessful",
+                                                     "close_notes": note.replace("[Jarvis] ", "", 1)})
+    print(f"{change['number']}: {pending['procedure_id']} {'ok' if ok else 'failed'}, change closed")
 
 
 def handle_approve(incident, snow, llm=None, model=None):
@@ -122,36 +209,57 @@ def handle_approve(incident, snow, llm=None, model=None):
     approver = snow.approval_for_proposal(incident["sys_id"])
     if not approver:
         return print(f"{incident['number']}: no agent approval after the proposal, refusing to act")
+    proc = procedures.load().get(pending["procedure_id"])
+    if proc and proc["risk"] == "L2":  # L2 is approved on its Change, never with this button
+        return print(f"{incident['number']}: the pending procedure is L2, it waits for its Change")
+    if not still_valid(snow, incident, pending, "L1", approver):
+        return
+    execute(snow, incident, pending, approver)
+
+
+def still_valid(snow, incident, pending, risk, approved_by):
+    """The pending procedure still exists in the catalog at this risk level and its stored parameters still pass the
+    catalog's validation (the database row could have been tampered with)."""
+    proc, params = procedures.load().get(pending["procedure_id"]), pending["params"]
+    if proc and proc["risk"] == risk and set(params) == set(proc["params"]) and \
+            all(procedures.valid(proc["params"][k], v) for k, v in params.items()):
+        return True
+    snow.executions.finish(pending["id"], "failed", approved_by, {"error": "procedure or parameters no longer valid"})
+    snow.add_work_note(incident["sys_id"], f"{OUTCOME} not run: it is no longer valid in the catalog.")
+    return False
+
+
+def execute(snow, incident, pending, approved_by):
+    """Shared by L1 (approve button) and L2 (approved Change): re-check, run, verify, record, resolve the incident.
+    Returns (ok, the outcome note)."""
     catalog = procedures.load()
-    proc, params = catalog.get(pending["procedure_id"]), pending["params"]
-    if not proc or proc["risk"] != "L1" or set(params) != set(proc["params"]) or \
-            not all(procedures.valid(proc["params"][k], v) for k, v in params.items()):
-        snow.executions.finish(pending["id"], "failed", approver, {"error": "procedure or parameters no longer valid"})
-        return snow.add_work_note(incident["sys_id"], "[Jarvis] Procedure not run: it is no longer valid in the catalog.")
+    proc, params = catalog[pending["procedure_id"]], pending["params"]
     cond = proc["propose_if"]
     check_params = {k: params[k] for k in catalog[cond["check"]]["params"]}
     before = run_check(snow, incident, cond["check"], check_params)
     if not procedures.holds(cond, before):  # e.g. the account unlocked by itself meanwhile
-        snow.executions.finish(pending["id"], "not_needed", approver, verify_result=before)
-        return snow.add_work_note(incident["sys_id"], f"[Jarvis] Procedure not run, no longer needed: "
-                                                      f"{describe(cond['check'], check_params)}: {procedures.summary(before)}.")
+        snow.executions.finish(pending["id"], "not_needed", approved_by, verify_result=before)
+        note = f"{OUTCOME} not run, no longer needed: {describe(cond['check'], check_params)}: {procedures.summary(before)}."
+        snow.add_work_note(incident["sys_id"], note)
+        return False, note
     try:
         result = procedures.run(snow, proc, params)
     except Exception as e:
         result = {"error": str(e)}
     after = run_check(snow, incident, proc["verify"]["check"], check_params) if not result.get("error") else None
     ok = after is not None and procedures.holds(proc["verify"], after)
-    snow.executions.finish(pending["id"], "succeeded" if ok else "failed", approver, result, after)
-    note = (f"[Jarvis] Procedure {'done' if ok else 'FAILED'}: {describe(pending['procedure_id'], params)}, approved by {approver}.\n"
+    snow.executions.finish(pending["id"], "succeeded" if ok else "failed", approved_by, result, after)
+    note = (f"{OUTCOME} {'done' if ok else 'FAILED'}: {describe(pending['procedure_id'], params)}, approved by {approved_by}.\n"
             f"Result: {procedures.summary(result)}")
     if after is not None:
         note += f"\nVerification ({proc['verify']['check']}): {procedures.summary(after)} -> {'OK' if ok else 'NOT OK'}"
     fields = {"state": "6", "close_code": "Workaround provided",
               "close_notes": f"{proc['title']} ({', '.join(f'{k} {v}' for k, v in params.items())}) run by Jarvis on-prem "
-                             f"after approval by {approver}. Verified: {procedures.summary(after)}."} if ok else None
+                             f"after approval by {approved_by}. Verified: {procedures.summary(after)}."} if ok else None
     snow.add_work_note(incident["sys_id"], note + ("\nResolving the incident." if ok else "\nLeaving the incident open."), fields)
     snow.audit(incident["number"], "remediation", detail={"procedure": pending["procedure_id"], "params": params, "ok": ok})
-    print(f"{incident['number']}: {pending['procedure_id']} approved by {approver}: {'ok' if ok else 'failed'}")
+    print(f"{incident['number']}: {pending['procedure_id']} approved by {approved_by}: {'ok' if ok else 'failed'}")
+    return ok, note
 
 
 def handle_resolved(incident, snow, llm, model):

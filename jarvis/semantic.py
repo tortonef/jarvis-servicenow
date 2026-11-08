@@ -15,7 +15,7 @@ class SemanticIndex:
             embedder = TextEmbedding(MODEL)
         self.embedder, self.store, self.vectors = embedder, store, {}
 
-    def top(self, query, records, fields, k=3):
+    def top(self, query, records, fields, k=3, min_score=MIN_SCORE):
         """Records ordered by similarity to the query. A record scores the best of its title (first field) and its
         full text: long bodies dilute the meaning (measured in tests/eval_search.py: 8/10 full text, 10/10 best-of).
         Vectors are cached per sys_id + last update (in memory, and in the store if any), so only new or edited
@@ -37,4 +37,4 @@ class SemanticIndex:
         q = np.asarray(next(iter(self.embedder.query_embed([query]))))
         score = lambda r: max(float(v @ q) for v in self.vectors[key(r)])
         scored = sorted(((score(r), r) for r in records), key=lambda x: -x[0])
-        return [r for s, r in scored[:k] if s >= MIN_SCORE]
+        return [r for s, r in scored[:k] if s >= min_score]

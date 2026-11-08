@@ -1,0 +1,26 @@
+<div class="panel panel-default jarvis-ask">
+  <div class="panel-heading"><h2 class="panel-title">Ask Jarvis</h2></div>
+  <div class="panel-body">
+    <p>Describe your IT problem in your own words. Jarvis answers from the Helios knowledge base; if that does not fix it,
+       you can open a ticket in one click and the Service Desk will see what you already tried.</p>
+    <label for="jarvis-question" class="sr-only">Your problem</label>
+    <textarea id="jarvis-question" class="form-control" rows="3" maxlength="1000" ng-model="c.question"
+              placeholder="e.g. Teams says my organization doesn't allow me to join the supplier's meeting"></textarea>
+    <button class="btn btn-primary jarvis-btn" ng-click="c.ask()" ng-disabled="c.busy || !c.question">Ask Jarvis</button>
+    <p ng-if="c.busy" role="status">Jarvis is reading the knowledge base...</p>
+    <div ng-if="c.result.error" class="alert alert-danger" role="alert">{{c.result.error}}</div>
+    <div ng-if="c.result.answer" class="jarvis-answer" role="status">
+      <div class="jarvis-text">{{c.result.answer}}</div>
+      <p ng-if="c.result.articles.length">
+        Read more:
+        <a ng-repeat="a in c.result.articles" href="?id=kb_article&sysparm_article={{a.number}}" target="_blank">{{a.number}} {{a.title}}<span ng-if="!$last">, </span></a>
+      </p>
+      <div ng-if="!c.done">
+        <button class="btn btn-success" ng-click="c.outcome(true)">This solved my problem</button>
+        <button class="btn btn-default" ng-click="c.outcome(false)">I still need help: open a ticket</button>
+      </div>
+      <div ng-if="c.done == 'solved'" class="alert alert-success">Great, no ticket needed.</div>
+      <div ng-if="c.incident" class="alert alert-info">Ticket {{c.incident}} opened. The Service Desk sees your question and the answer you already tried.</div>
+    </div>
+  </div>
+</div>

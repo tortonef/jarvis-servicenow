@@ -19,6 +19,7 @@ RESOLVED = [{"number": f"INC00100{i:02}", **r} for i, r in enumerate(INCIDENTS["
 class FakeSnow:
     """Same ranking as the real client, over local seed data instead of the Table API."""
     executions = None  # procedures are tested in test_procedures.py
+    semantic = None    # problem clustering is tested in test_phase4.py
 
     def __init__(self, existing_draft=None):
         self.notes, self.fields, self.created, self.existing_draft, self.audited = {}, {}, [], existing_draft, []

@@ -1,0 +1,4 @@
+.jarvis-ask .jarvis-btn { margin-top: 10px; }
+.jarvis-ask .jarvis-answer { margin-top: 16px; padding: 12px; border-left: 4px solid #f97316; background: #fff7ed; }
+.jarvis-ask .jarvis-text { white-space: pre-line; margin-bottom: 10px; }
+.jarvis-ask .btn + .btn { margin-left: 8px; }

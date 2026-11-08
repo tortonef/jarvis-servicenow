@@ -12,6 +12,19 @@ case "$SSH_ORIGINAL_COMMAND" in
         find "$LOGS" -name '*.log.*' -mtime +14 -delete
         printf '{"deleted_files":%s}\n' "$n"
         ;;
+    restart_portal)
+        # RB-SRV-002: restart helios-portal on this node; L2, only ever run for an approved Change
+        pkill -u jarvis -f 'http.server 8080' 2>/dev/null; sleep 1
+        setsid nohup python3 -m http.server 8080 --directory /srv/portal >/dev/null 2>&1 < /dev/null &
+        sleep 2
+        if curl -fsS --max-time 5 http://localhost:8080/health >/dev/null 2>&1; then
+            printf '{"restarted":true,"healthy":true}
+'
+        else
+            printf '{"restarted":true,"healthy":false}
+'
+        fi
+        ;;
     portal_health)
         if body=$(curl -fsS --max-time 5 http://localhost:8080/health 2>/dev/null); then
             printf '{"healthy":true,"body":"%s"}\n' "$(echo "$body" | tr -dc 'a-zA-Z0-9 ')"

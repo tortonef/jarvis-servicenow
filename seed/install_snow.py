@@ -28,6 +28,23 @@ JarvisClient.prototype = {
         return r.executeAsync();
     },
 
+    // Synchronous call for the self-service portal widget: returns { status, body }
+    askSync: function(path, payload) {
+        var r = new sn_ws.RESTMessageV2();
+        r.setEndpoint(gs.getProperty('jarvis.endpoint') + path);
+        r.setHttpMethod('post');
+        r.setRequestHeader('Content-Type', 'application/json');
+        r.setRequestHeader('X-Jarvis-Token', gs.getProperty('jarvis.token'));
+        r.setRequestBody(JSON.stringify(payload));
+        r.setHttpTimeout(30000);
+        try {
+            var res = r.execute();
+            return { status: res.getStatusCode(), body: JSON.parse(res.getBody() || '{}') };
+        } catch (e) {
+            return { status: 0, body: {} };
+        }
+    },
+
     // True while the latest Jarvis procedure note on the incident is a proposal nobody approved yet
     pendingProposal: function(sysId) {
         var j = new GlideRecord('sys_journal_field');
@@ -107,6 +124,10 @@ DIAGNOSE_BUTTON = """new JarvisClient().ask(current.sys_id, '/diagnose');
 gs.addInfoMessage('Jarvis is checking the Active Directory account of the caller through the MID Server.');
 action.setRedirectURL(current);"""
 
+IMPLEMENT_RULE = """(function executeRule(current, previous) {
+    new JarvisClient().ask(current.sys_id, '/implement');
+})(current, previous);"""
+
 RESOLVED_RULE = """(function executeRule(current, previous) {
     new JarvisClient().ask(current.sys_id, '/kb-draft');
 })(current, previous);"""
@@ -175,6 +196,12 @@ def install(snow, endpoint, token):
             "condition": "current.active && !current.caller_id.nil()", "form_button": "true", "workspace_form_button": "true",
             "client": "false", "active": "true", "order": "105",
             "hint": "Read-only: check the caller's lockout state in Active Directory"})
+    install_portal(snow)
+    # L2 procedures: Jarvis acts when the approved Change it filed moves to Implement
+    upsert(snow, "sys_script", "collection=change_request^name=Jarvis: implement approved change",
+           {"name": "Jarvis: implement approved change", "collection": "change_request", "when": "async",
+            "action_update": "true", "filter_condition": "correlation_idSTARTSWITHjarvis-exec-^stateCHANGESTO-1^EQ",
+            "advanced": "true", "active": "true", "order": "100", "script": IMPLEMENT_RULE})
     upsert(snow, "sys_script", "collection=incident^name=Jarvis: draft KB on resolve",
            {"name": "Jarvis: draft KB on resolve", "collection": "incident", "when": "async",
             "action_update": "true", "filter_condition": "stateCHANGESTO6^EQ", "advanced": "true", "active": "true",
@@ -183,3 +210,24 @@ def install(snow, endpoint, token):
 
 if __name__ == "__main__":
     main()
+
+
+def install_portal(snow):
+    """Self-service page on the Service Portal: /sp?id=jarvis_help with the 'Ask Jarvis' widget."""
+    files = Path(__file__).parent / "portal"
+    widget = upsert(snow, "sp_widget", "id=jarvis_ask", {
+        "name": "Ask Jarvis", "id": "jarvis_ask",
+        "template": (files / "template.html").read_text(encoding="utf-8"),
+        "client_script": (files / "client.js").read_text(encoding="utf-8"),
+        "script": (files / "server.js").read_text(encoding="utf-8"),
+        "css": (files / "style.css").read_text(encoding="utf-8")})
+    page = upsert(snow, "sp_page", "id=jarvis_help", {"id": "jarvis_help", "title": "IT help - Ask Jarvis"})
+    container = snow.first("sp_container", f"sp_page={page['sys_id']}") or \
+        snow.create("sp_container", {"sp_page": page["sys_id"], "order": "1", "width": "container"})
+    row = snow.first("sp_row", f"sp_container={container['sys_id']}") or \
+        snow.create("sp_row", {"sp_container": container["sys_id"], "order": "1"})
+    column = snow.first("sp_column", f"sp_row={row['sys_id']}") or \
+        snow.create("sp_column", {"sp_row": row["sys_id"], "order": "1", "size": "12"})
+    if not snow.first("sp_instance", f"sp_column={column['sys_id']}^sp_widget={widget['sys_id']}"):
+        snow.create("sp_instance", {"sp_column": column["sys_id"], "sp_widget": widget["sys_id"], "order": "1"})
+    print("portal: /sp?id=jarvis_help ok")

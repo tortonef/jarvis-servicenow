@@ -91,6 +91,17 @@ class TestDb(unittest.TestCase):
                                 ("L1", "succeeded", "jane.agent")])
         self.conn.execute("DELETE FROM execution WHERE incident_sys_id = 'exec-test'")
 
+    def test_weekly_report_from_the_database(self):
+        import datetime
+        from jarvis import report
+        self.conn.execute("INSERT INTO self_service (user_name, question, answer, solved) VALUES "
+                          "('rep-test', 'q', 'a', true), ('rep-test', 'q', 'a', false)")
+        text = report.build(self.conn, today=datetime.date.today())
+        self.assertIn("*Jarvis weekly report*", text)
+        self.assertRegex(text, r"Self-service\*: \d+ questions on the portal")
+        self.assertIn("deflection", text)
+        self.conn.execute("DELETE FROM self_service WHERE user_name = 'rep-test'")
+
     @classmethod
     def tearDownClass(cls):
         cls.conn.execute("DELETE FROM embedding_cache WHERE model IN ('test-model', 'fake')")

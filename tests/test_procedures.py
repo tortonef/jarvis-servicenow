@@ -27,7 +27,8 @@ class FakeExecutions:
         for r in self.rows:
             if r["status"] == "proposed":
                 r["status"] = "superseded"
-        self.rows.append({"id": len(self.rows) + 1, "procedure_id": pid, "status": "proposed", "params": params})
+        self.rows.append({"id": 1 + sum(1 for r in self.rows if r.get("id")), "procedure_id": pid, "status": "proposed",
+                          "params": params})
 
     def pending(self, sys_id):
         found = [r for r in self.rows if r["status"] == "proposed"]
@@ -40,6 +41,7 @@ class FakeExecutions:
 
 class FakeSnow:
     instance = "https://dev1"
+    semantic = knowledge = None
 
     def __init__(self, docs, approver="jane.agent", user_name="alex.rivera"):
         self.docs, self.approver, self.user_name = docs, approver, user_name
@@ -95,7 +97,7 @@ class TestCatalog(unittest.TestCase):
         bad["ad_unlock_account"]["propose_if"]["check"] = "linux_clean_logs"      # not an L0 check
         errors = "\n".join(procedures.check(bad))
         for expected in ("risk must be one of", "mid.call must be one of", "needs a pattern or an enum",
-                         "L1 procedures need propose_if and verify", "propose_if.check must name an L0 procedure"):
+                         "L1 and L2 procedures need propose_if and verify", "propose_if.check must name an L0 procedure"):
             self.assertIn(expected, errors)
 
     def test_parameters_come_from_data_not_from_free_text(self):
