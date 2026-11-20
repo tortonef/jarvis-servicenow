@@ -55,6 +55,7 @@ jarvis/procedures.py procedure catalog: validation, parameters, proposal and ver
 jarvis/selfservice.py portal answers from end-user articles, deflection tracking
 jarvis/problems.py Problem proposals from clusters of similar incidents
 jarvis/report.py   weekly health report
+jarvis/watcher.py  backlog snapshots and SLA alerts with the resolution suggestion
 jarvis/docs_pr.py  knowledge gaps as pull requests on the docs repo
 procedures/        catalog.yaml: what Jarvis may run, at which risk level
 jarvis/knowledge.py docs as code: validate, ingest, hybrid search, publish to the KB

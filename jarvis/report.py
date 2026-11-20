@@ -27,6 +27,15 @@ def build(conn, days=7, today=None):
     failed = q(f"SELECT ticket, procedure_id FROM execution WHERE status = 'failed' AND proposed_at > {since} "
                f"ORDER BY id DESC LIMIT 5")
     problems = q(f"SELECT count(*) FROM suggestion WHERE kind = 'problem' AND created_at > {since}")[0][0]
+    # backlog: the latest snapshot now, and the first one of the period (none before the Watcher ran)
+    snap = lambda order: q(f"SELECT coalesce(sum(open), 0), coalesce(sum(at_risk), 0), coalesce(sum(breached), 0) "
+                           f"FROM backlog_snapshot WHERE taken_at = (SELECT {order}(taken_at) FROM backlog_snapshot "
+                           f"WHERE taken_at > {since})")[0]
+    now_b, start_b = snap("max"), snap("min")
+    sla = q(f"SELECT count(*) FILTER (WHERE level = 'warning'), count(*) FILTER (WHERE level = 'breached') "
+            f"FROM sla_alert WHERE created_at > {since}")[0]
+    worst = q(f"SELECT coalesce(nullif(assignment_group, ''), 'unassigned'), count(*) FROM sla_alert "
+              f"WHERE level = 'breached' AND created_at > {since} GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 3")
     stale = q("SELECT id, title, review_by FROM document WHERE review_by < %s ORDER BY review_by LIMIT 10",
               today + datetime.timedelta(days=30))
 
@@ -40,6 +49,9 @@ def build(conn, days=7, today=None):
     if failed:
         lines.append("*Failed procedures*: " + ", ".join(f"{t} {p}" for t, p in failed))
     lines.append(f"*Problems proposed*: {problems}.")
+    lines.append(f"*Backlog and SLA*: {now_b[0]} open incidents (from {start_b[0]} at the start of the period), "
+                 f"{now_b[1]} at risk and {now_b[2]} breached now; {sla[0]} SLA warnings and {sla[1]} breaches this period"
+                 + (" (most breaches: " + ", ".join(f"{esc(g)} {n}" for g, n in worst) + ")" if worst else "") + ".")
     lines.append("*Docs to review in the next 30 days*: " +
                  (", ".join(f"{i} {esc(t)} ({d.isoformat()})" for i, t, d in stale) if stale else "none") + ".")
     return "\n".join(lines)

@@ -72,10 +72,7 @@ class Snow:
         """Incident categories (value -> label) and the groups that already handle incidents (name -> sys_id)."""
         cats = {c["value"]: c["label"] for c in self.query(
             "sys_choice", "name=incident^element=category^inactive=false^language=en", ["value", "label"], 100)}
-        r = self.http.get(self.base.replace("/table/", "/stats/") + "incident", timeout=30, params={
-            "sysparm_group_by": "assignment_group", "sysparm_count": "true", "sysparm_query": "assignment_groupISNOTEMPTY"})
-        r.raise_for_status()
-        ids = ",".join(x["groupby_fields"][0]["value"] for x in r.json()["result"])
+        ids = ",".join(g["assignment_group"] for g, _ in self.stats("incident", "assignment_groupISNOTEMPTY", "assignment_group"))
         groups = {g["name"]: g["sys_id"] for g in self.query("sys_user_group", f"sys_idIN{ids}", ["name", "sys_id"], 100)}
         return cats, groups
 
@@ -84,15 +81,34 @@ class Snow:
 
     def latest_feedback(self, incident_sys_id):
         """(agent user name, helpful) from the newest rating note on the incident, or None."""
-        note = self.query("sys_journal_field", f"element=work_notes^element_id={incident_sys_id}"
-                                               f"^valueSTARTSWITH{FEEDBACK}^ORDERBYDESCsys_created_on",
-                          ["value", "sys_created_by"], 1)
+        note = self.latest_note(incident_sys_id, FEEDBACK)
         if not note:
             return None
-        verdict = note[0]["value"][len(FEEDBACK):].strip().lower()
+        verdict = note["value"][len(FEEDBACK):].strip().lower()
         if not verdict.startswith(("helpful", "not helpful")):
             return None
-        return note[0]["sys_created_by"], verdict.startswith("helpful")
+        return note["sys_created_by"], verdict.startswith("helpful")
+
+    def latest_note(self, incident_sys_id, prefix):
+        """The newest work note starting with prefix ({value, sys_created_by}), or None."""
+        notes = self.query("sys_journal_field", f"element=work_notes^element_id={incident_sys_id}"
+                                                f"^valueSTARTSWITH{prefix}^ORDERBYDESCsys_created_on",
+                           ["value", "sys_created_by"], 1)
+        return notes[0] if notes else None
+
+    def stats(self, table, query, group_by, display=False):
+        """Record counts grouped by fields: [({field: value}, count)]. display=True gives labels instead of values."""
+        r = self.http.get(self.base.replace("/table/", "/stats/") + table, timeout=30, params={
+            "sysparm_group_by": group_by, "sysparm_count": "true", "sysparm_query": query,
+            "sysparm_display_value": str(display).lower()})
+        r.raise_for_status()
+        return [({g["field"]: g["value"] for g in x["groupby_fields"]}, int(x["stats"]["count"])) for x in r.json()["result"]]
+
+    def active_slas(self, limit=500):
+        """Running SLAs of active incidents, with the incident's number, priority and group dot-walked in."""
+        return self.query("task_sla", "active=true^task.sys_class_name=incident^task.active=true^ORDERBYDESCpercentage",
+                          ["sys_id", "sla.name", "percentage", "has_breached", "planned_end_time", "stage", "task.sys_id",
+                           "task.number", "task.priority", "task.state", "task.assignment_group", "task.assignment_group.name"], limit)
 
     def approval_for_proposal(self, incident_sys_id):
         """User name of the agent who approved the latest proposal, or None. ServiceNow's own clock orders the notes."""
