@@ -6,7 +6,7 @@ footer: Jarvis · GenAI Lab
 title: Jarvis - an AI assistant for the IT Service Desk
 ---
 
-<!-- Slide deck in Marp format. On GitHub it reads top to bottom. To present or export (theme and settings come from .marprc.yml): npx @marp-team/marp-cli docs/deck.md --pdf -->
+<!-- Slide deck in Marp format. On GitHub it reads top to bottom; the interactive version is https://tortonef.github.io/jarvis-servicenow/ (built by .github/workflows/slides.yml). Export locally (theme from .marprc.yml): npx @marp-team/marp-cli docs/deck.md --pdf -->
 
 <!-- _class: lead -->
 <!-- _paginate: false -->
@@ -20,7 +20,7 @@ From a new ticket to a verified fix, with a human approving every action that ma
 
 <span class="chip">ServiceNow</span> <span class="chip">Groq · GPT-OSS 120B</span> <span class="chip">PostgreSQL + pgvector</span> <span class="chip">MID Server</span> <span class="chip">Free tiers</span>
 
-[← Back to the README](../README.md)
+[← Project on GitHub](https://github.com/tortonef/jarvis-servicenow)
 
 ---
 
@@ -324,6 +324,6 @@ One `docker compose up` starts everything and installs the ServiceNow side.
 
 Open an incident: the suggestion appears in seconds.
 
-<span class="chip">[Features](features.md)</span> <span class="chip">[Design](design.md)</span> <span class="chip">[Knowledge as code](knowledge-as-code.md)</span> <span class="chip">[On-prem lab](on-prem-lab.md)</span>
+<span class="chip">[Features](https://github.com/tortonef/jarvis-servicenow/blob/main/docs/features.md)</span> <span class="chip">[Design](https://github.com/tortonef/jarvis-servicenow/blob/main/docs/design.md)</span> <span class="chip">[Knowledge as code](https://github.com/tortonef/jarvis-servicenow/blob/main/docs/knowledge-as-code.md)</span> <span class="chip">[On-prem lab](https://github.com/tortonef/jarvis-servicenow/blob/main/docs/on-prem-lab.md)</span>
 
 [github.com/tortonef/jarvis-servicenow](https://github.com/tortonef/jarvis-servicenow)
