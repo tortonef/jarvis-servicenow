@@ -82,6 +82,7 @@ For the procedures, add the [on-prem lab](docs/on-prem-lab.md). To run without D
 
 | | |
 |---|---|
+| [Slide deck](docs/deck.md) ([PDF](docs/deck.pdf)) | The story of Jarvis in 15 slides |
 | [Features](docs/features.md) | Every feature, with screenshots |
 | [Architecture and design choices](docs/design.md) | Detailed flow and why it is built this way |
 | [Knowledge base as code](docs/knowledge-as-code.md) | Docs in Git, hybrid search, retrieval quality gate |

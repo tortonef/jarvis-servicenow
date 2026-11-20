@@ -1,0 +1,4 @@
+# Marp CLI settings for docs/deck.md (npx @marp-team/marp-cli docs/deck.md --pdf)
+themeSet: docs/deck-theme.css
+html: true
+allowLocalFiles: true

@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1140 500" font-family="Inter, 'Segoe UI', system-ui, sans-serif" role="img" aria-label="Jarvis architecture: ServiceNow calls Jarvis with a sys_id and token; Jarvis uses hybrid search, an LLM and a procedure catalog, reaches on-prem AD and Linux through the MID Server, syncs knowledge from GitHub, writes back to ServiceNow and alerts Slack">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#94a3b8"/>
+    </marker>
+    <style>
+      .box{fill:#121624;stroke:rgba(255,255,255,.12);stroke-width:1.2}
+      .t{fill:#f1f5f9;font-size:16px;font-weight:600}
+      .s{fill:#94a3b8;font-size:13px}
+      .lbl{fill:#a78bfa;font-size:12px;font-family:'JetBrains Mono',Consolas,monospace}
+      .e{stroke:#94a3b8;stroke-width:1.5;fill:none;marker-end:url(#a)}
+      .cap{fill:#a78bfa;font-size:12px;letter-spacing:2.4px;font-family:'JetBrains Mono',Consolas,monospace}
+    </style>
+  </defs>
+  <rect width="1140" height="500" rx="18" fill="#0a0c14"/>
+
+  <!-- People -->
+  <rect x="24" y="150" width="120" height="44" rx="22" class="box"/>
+  <text x="84" y="177" text-anchor="middle" class="t">End user</text>
+  <rect x="24" y="246" width="120" height="44" rx="22" class="box"/>
+  <text x="84" y="273" text-anchor="middle" class="t">Agent</text>
+  <path d="M144 172H178" class="e"/>
+  <path d="M144 268H178" class="e"/>
+
+  <!-- ServiceNow -->
+  <rect x="180" y="120" width="180" height="200" rx="14" fill="#121624" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="270" y="152" text-anchor="middle" class="cap">SYSTEM OF RECORD</text>
+  <text x="270" y="196" text-anchor="middle" class="t" font-size="20">ServiceNow</text>
+  <text x="270" y="226" text-anchor="middle" class="s">Incidents · Changes</text>
+  <text x="270" y="246" text-anchor="middle" class="s">Problems · SLAs · KB</text>
+  <text x="270" y="266" text-anchor="middle" class="s">Service Portal</text>
+
+  <!-- SN <-> Jarvis -->
+  <path d="M360 170H468" class="e"/>
+  <text x="414" y="144" text-anchor="middle" class="lbl">sys_id</text>
+  <text x="414" y="160" text-anchor="middle" class="lbl">+ token</text>
+  <path d="M468 280H362" class="e"/>
+  <text x="414" y="302" text-anchor="middle" class="lbl">notes,</text>
+  <text x="414" y="318" text-anchor="middle" class="lbl">triage,</text>
+  <text x="414" y="334" text-anchor="middle" class="lbl">Changes</text>
+
+  <!-- Jarvis -->
+  <rect x="470" y="30" width="380" height="440" rx="18" fill="#0e111b" stroke="url(#g)" stroke-width="2"/>
+  <text x="494" y="62" class="cap">JARVIS · PYTHON · DOCKER</text>
+  <rect x="490" y="80" width="340" height="56" rx="12" class="box"/>
+  <text x="660" y="104" text-anchor="middle" class="t">HTTP server + watcher loop</text>
+  <text x="660" y="124" text-anchor="middle" class="s">re-reads every ticket from ServiceNow</text>
+  <rect x="490" y="156" width="164" height="84" rx="12" class="box"/>
+  <text x="572" y="188" text-anchor="middle" class="t">Hybrid search</text>
+  <text x="572" y="210" text-anchor="middle" class="s">pgvector + full text</text>
+  <text x="572" y="228" text-anchor="middle" class="s">KB + past tickets</text>
+  <rect x="666" y="156" width="164" height="84" rx="12" class="box"/>
+  <text x="748" y="188" text-anchor="middle" class="t">LLM</text>
+  <text x="748" y="210" text-anchor="middle" class="s">Groq, GPT-OSS 120B</text>
+  <text x="748" y="228" text-anchor="middle" class="s">writes text only</text>
+  <rect x="490" y="260" width="340" height="84" rx="12" class="box"/>
+  <text x="660" y="290" text-anchor="middle" class="t">Procedure catalog</text>
+  <text x="590" y="320" text-anchor="middle" fill="#34d399" font-size="14" font-family="'JetBrains Mono',Consolas,monospace">L0 auto</text>
+  <text x="660" y="320" text-anchor="middle" fill="#60a5fa" font-size="14" font-family="'JetBrains Mono',Consolas,monospace">L1 click</text>
+  <text x="740" y="320" text-anchor="middle" fill="#fbbf24" font-size="14" font-family="'JetBrains Mono',Consolas,monospace">L2 Change</text>
+  <rect x="490" y="364" width="340" height="84" rx="12" class="box"/>
+  <text x="660" y="396" text-anchor="middle" class="t">PostgreSQL + pgvector</text>
+  <text x="660" y="420" text-anchor="middle" class="s">chunks · audit · votes · SLA snapshots</text>
+
+  <!-- Right side -->
+  <rect x="930" y="40" width="186" height="80" rx="14" class="box"/>
+  <text x="1023" y="72" text-anchor="middle" class="t">GitHub</text>
+  <text x="1023" y="96" text-anchor="middle" class="s">knowledge/ as Markdown</text>
+  <path d="M928 70H852" class="e"/>
+  <text x="890" y="62" text-anchor="middle" class="lbl">sync</text>
+  <path d="M852 104H928" class="e"/>
+  <text x="890" y="124" text-anchor="middle" class="lbl">KB PRs</text>
+
+  <rect x="930" y="160" width="186" height="60" rx="14" class="box"/>
+  <text x="1023" y="196" text-anchor="middle" class="t">Slack</text>
+  <path d="M852 190H928" class="e"/>
+  <text x="890" y="182" text-anchor="middle" class="lbl">P1, SLA</text>
+
+  <rect x="930" y="268" width="186" height="60" rx="14" class="box"/>
+  <text x="1023" y="295" text-anchor="middle" class="t">MID Server</text>
+  <text x="1023" y="314" text-anchor="middle" class="s">ECC queue, outbound</text>
+  <path d="M832 300H928" class="e"/>
+
+  <rect x="930" y="374" width="186" height="80" rx="14" fill="#121624" stroke="#34d399" stroke-width="1.5"/>
+  <text x="1023" y="400" text-anchor="middle" class="cap" fill="#34d399">ON-PREM</text>
+  <text x="1023" y="424" text-anchor="middle" class="t">AD · Linux servers</text>
+  <path d="M1023 328V372" class="e"/>
+</svg>
