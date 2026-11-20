@@ -113,12 +113,13 @@ def main():
                                        "/implement": job(handle_implement, "change_request"),
                                        "/feedback": job(handle_feedback)}, host, api)
     print(f"Jarvis listening on http://{host}:{port} (/suggest, /kb-draft, /approve, /diagnose, /implement, /feedback, /ask, /ask-outcome)")
-    threading.Thread(target=background, args=(snow, token), daemon=True).start()
+    threading.Thread(target=background, args=(snow, token, llm, model), daemon=True).start()
     server.serve_forever()
 
 
-def background(snow, token):
-    """After the socket is open: register the tunnel (docker compose), then keep the knowledge base in sync."""
+def background(snow, token, llm=None, model=None):
+    """After the socket is open: register the tunnel (docker compose), then keep the knowledge base in sync and watch
+    the backlog and SLAs."""
     if os.getenv("JARVIS_TUNNEL_METRICS"):
         register_tunnel(snow, token, os.environ["JARVIS_TUNNEL_METRICS"])
     docs = bool(snow.knowledge and (os.getenv("DOCS_REPO") or os.getenv("DOCS_DIR")))
@@ -135,6 +136,12 @@ def background(snow, token):
             except Exception as e:  # GitHub or ServiceNow down: keep the last good knowledge base and retry
                 print(f"knowledge: sync failed, retrying: {e}")
                 force = True
+        if llm and snow.db:
+            from jarvis import watcher
+            try:
+                watcher.watch(snow, llm, model)
+            except Exception as e:  # ServiceNow or the database down: next loop
+                print(f"watcher: pass failed: {e}")
         weekly_report(snow)
         if os.getenv("JARVIS_TUNNEL_METRICS"):
             try:

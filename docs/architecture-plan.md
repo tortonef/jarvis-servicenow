@@ -258,6 +258,7 @@ sequenceDiagram
 | **2. On-prem lab + bridge** ✅ | Samba AD DC (`dc01`, `helios.local`) in Docker, MID Server from ServiceNow's official container recipe, ECC queue JavascriptProbe to a MID Script Include, read-only AD lockout check | A button in ServiceNow reads a real AD account's lockout status | done |
 | **3. Procedure catalog** ✅ | `procedures/catalog.yaml` with 5 procedures (3 L0, 2 L1), rules for proposing and verifying, L0 auto-diagnostics in every suggestion, generic L1 approval button, `execution` audit table, lab servers app01/app02 with an SSH forced command, AD delegation | "Can't log in" → diagnosis from AD → one-click unlock in the real lab AD | done |
 | **4. Processes** ✅ | Self-service portal page with deflection tracking, L2 procedures through an approved Normal Change built from the runbook, Problem proposals from clusters, weekly report to Slack | Full L1 and L2 journeys end to end | done |
+| **6. Watcher** ✅ | Backlog snapshots and SLA alerts from `task_sla` in the background loop, a work note with the resolution suggestion and a Slack alert per SLA warning or breach, *Operations* dashboard in Grafana, backlog and SLA in the weekly report | A ticket at 80% of its SLA gets the fix on the ticket and in Slack | done |
 | **5. Quality loop** ✅ | Helpful / not helpful buttons stored per agent, Grafana dashboard on a read-only role (time saved as an editable estimate, knowledge gaps, docs due for review), KB gaps as pull requests on the docs repo | Dashboard showing what Jarvis saved this week | done |
 
 ### Phase 0 notes
@@ -302,6 +303,13 @@ sequenceDiagram
 - **The rating buttons need a valid form.** They are server-side UI actions, so a ticket with an empty mandatory field (a monitoring ticket with no caller) must be fixed before voting.
 - **Gap ids carry the incident number** (`KB-INC0010042-001`): two open pull requests can never collide, and the reviewer renames it to a proper area before merging.
 - **The stale-doc report is the *Docs due for review* table** plus the weekly Slack report; no separate job.
+
+### Phase 6 notes
+
+- **ServiceNow computes the SLAs.** Jarvis reads `task_sla` (percentage, breach flag, planned end) instead of keeping its own targets; a planned end in the past also counts as breached, because the percentage is refreshed by ServiceNow's SLA jobs and can lag. Incidents created before an SLA definition was active have no `task_sla` row and are only counted in the backlog.
+- **No flood on the first run.** The PDI ships with dozens of demo incidents whose SLAs breached years ago: breaches older than 24 hours are counted but not alerted, and a pass sends at most 10 alerts.
+- **Alerts, not escalation.** The Watcher writes work notes and Slack messages only; reassigning or raising priority stays with the team lead.
+- **Same loop, no new service.** It runs in the server's background loop next to the knowledge sync; the `sla_alert` table keeps a restart from alerting twice.
 
 ## 10. Open questions
 

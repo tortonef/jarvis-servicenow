@@ -102,6 +102,20 @@ class TestDb(unittest.TestCase):
         self.assertIn("deflection", text)
         self.conn.execute("DELETE FROM self_service WHERE user_name = 'rep-test'")
 
+    def test_weekly_report_has_backlog_and_sla(self):
+        import datetime
+        from jarvis import report
+        self.conn.execute("INSERT INTO backlog_snapshot (taken_at, priority, state, assignment_group, open, at_risk, breached) "
+                          "VALUES (now() + interval '1 hour', '1', '2', 'rep-test-group', 7, 2, 1)")
+        self.conn.execute("INSERT INTO sla_alert (task_sla_sys_id, level, ticket, incident_sys_id, sla_name, assignment_group) "
+                          "VALUES ('rep-test-sla', 'breached', 'INC-TEST', 'x', 'P1 resolution', 'rep-test-group')")
+        text = report.build(self.conn, today=datetime.date.today())
+        self.assertIn("*Backlog and SLA*: 7 open incidents", text)
+        self.assertIn("2 at risk and 1 breached now", text)
+        self.assertIn("rep-test-group", text)
+        self.conn.execute("DELETE FROM backlog_snapshot WHERE assignment_group = 'rep-test-group'")
+        self.conn.execute("DELETE FROM sla_alert WHERE task_sla_sys_id = 'rep-test-sla'")
+
     @classmethod
     def tearDownClass(cls):
         cls.conn.execute("DELETE FROM embedding_cache WHERE model IN ('test-model', 'fake')")

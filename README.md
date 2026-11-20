@@ -17,13 +17,15 @@ It runs on free tiers: a ServiceNow Personal Developer Instance, Groq (GPT-OSS 1
 | **Service Desk agents** | Writes a resolution suggestion as a work note, with its sources and confidence. Sets category and assignment group when nobody has. Runs safe fixes after a one-click approval. Takes a helpful / not helpful vote on every suggestion. |
 | **End users** | Answers questions on the Service Portal from employee articles, before a ticket is opened. |
 | **Maintenance team** | Checks AD and Linux servers on-prem through the MID Server. Runs L1 fixes after agent approval and L2 fixes through an approved Change. Proposes Problems from clusters of similar incidents. Sends P1 incidents to Slack with a first diagnosis. |
+| **Service Desk leads** | Watches the backlog and SLAs: an *Operations* dashboard with open, at-risk and breached tickets, and a work note plus Slack alert with the resolution suggestion when a ticket nears or breaches its SLA. |
 | **Knowledge owners** | Keeps the KB as Markdown in Git, reviewed by pull request and published to ServiceNow. Turns undocumented fixes into pull requests. Reports weekly on Slack and in a Grafana dashboard. |
 
 <table>
 <tr>
-<td width="33%"><a href="docs/features.md#procedures-diagnose-propose-approve-verify"><img src="docs/images/procedures.png" alt="Diagnose, propose, approve and verify an AD unlock"></a><br/><sub>Diagnose, approve, fix, verify</sub></td>
-<td width="33%"><a href="docs/features.md#support-processes"><img src="docs/images/self-service.png" alt="Self-service answer on the Service Portal"></a><br/><sub>Self-service on the portal</sub></td>
-<td width="33%"><a href="docs/features.md#quality-loop"><img src="docs/images/grafana.png" alt="Grafana quality dashboard"></a><br/><sub>What Jarvis saved this week</sub></td>
+<td width="25%"><a href="docs/features.md#procedures-diagnose-propose-approve-verify"><img src="docs/images/procedures.png" alt="Diagnose, propose, approve and verify an AD unlock"></a><br/><sub>Diagnose, approve, fix, verify</sub></td>
+<td width="25%"><a href="docs/features.md#support-processes"><img src="docs/images/self-service.png" alt="Self-service answer on the Service Portal"></a><br/><sub>Self-service on the portal</sub></td>
+<td width="25%"><a href="docs/features.md#watcher-backlog-and-sla"><img src="docs/images/operations.png" alt="Operations dashboard: backlog and SLA"></a><br/><sub>Backlog and SLA at a glance</sub></td>
+<td width="25%"><a href="docs/features.md#quality-loop"><img src="docs/images/grafana.png" alt="Grafana quality dashboard"></a><br/><sub>What Jarvis saved this week</sub></td>
 </tr>
 </table>
 
@@ -85,4 +87,4 @@ For the procedures, add the [on-prem lab](docs/on-prem-lab.md). To run without D
 | [Knowledge base as code](docs/knowledge-as-code.md) | Docs in Git, hybrid search, retrieval quality gate |
 | [On-prem lab and MID Server](docs/on-prem-lab.md) | Samba AD, Linux servers, MID Server setup |
 | [Development](docs/development.md) | Other run modes, tests, code layout |
-| [Architecture plan and roadmap](docs/architecture-plan.md) | Phases 0-5, all done, with notes |
+| [Architecture plan and roadmap](docs/architecture-plan.md) | Phases 0-6, all done, with notes |

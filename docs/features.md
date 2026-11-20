@@ -81,6 +81,18 @@ The same flow on a Linux server: a ticket about `app01`'s full log volume got tw
 
 **Knowledge gaps become pull requests.** With `GITHUB_TOKEN` set (a fine-grained token for this repository only, *Contents* and *Pull requests* read/write), a resolved incident whose fix is not documented becomes a pull request adding `knowledge/articles/<title>-<incident>.md`, with front matter filled in and a temporary id `KB-<incident>-001`. CI validates it like any doc, a human reviews and merges it, and the next sync publishes it to ServiceNow. Model output is flattened to one line per field, so it cannot add sections or break the front matter. Without a token, Jarvis falls back to a draft article in ServiceNow.
 
+## Watcher: backlog and SLA
+
+Every background loop (`DOCS_POLL_SECONDS`, 5 minutes by default) Jarvis reads the open incidents and their running SLAs (`task_sla`) from ServiceNow. It changes no field on the ticket.
+
+**Numbers over time.** Each pass stores the open backlog by priority, state and assignment group, with how many incidents are at risk (an SLA at or above `SLA_WARN_PERCENT`, 75 by default) or breached. The *Jarvis - Operations* dashboard in Grafana shows open, at-risk and breached incidents now, the backlog by priority over time, the backlog per group and the list of SLA alerts. The Monday report on Slack adds a *Backlog and SLA* line.
+
+<p align="center"><img src="images/operations.png" width="760" alt="Grafana Operations dashboard: open, at-risk and breached incidents, backlog by priority and group, SLA alerts"></p>
+
+**Alerts with a resolution suggestion.** When an SLA reaches the warning threshold, and again when it is breached, Jarvis posts a work note on the incident (`[Jarvis] SLA warning: P2 resolution at 82%, due 14:00 UTC`) with the probable cause and steps from its resolution suggestion, and sends the same to Slack. If the ticket has no Jarvis suggestion yet (opened before Jarvis, or its first answer failed), it writes the full suggestion first. Each SLA is alerted at most once per level; a paused SLA is not alerted. Breaches older than 24 hours (old demo data, or tickets already late before the first run) are counted on the dashboard but not alerted, and a pass sends at most 10 alerts so the LLM's rate limit holds. Run one pass by hand with `python -m jarvis.watcher`.
+
+<p align="center"><img src="images/sla-work-note.png" width="700" alt="SLA warning at 78% and breach at 100% on a P1 incident, each with the probable cause and steps from Jarvis's suggestion"></p>
+
 ## P1 alerts on Slack
 
 When the ticket is a P1 (impact and urgency high), Jarvis posts to a Slack channel as soon as its suggestion is ready: title linked to the incident, probable cause, confidence and KB sources, so the on-call team starts from a diagnosis instead of a bare alert. Set `NOTIFY_WEBHOOK_URL` to a Slack [Incoming Webhook](https://api.slack.com/messaging/webhooks); leave it empty to disable.
