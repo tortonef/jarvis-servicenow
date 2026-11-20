@@ -114,6 +114,16 @@ class TestWatcher(unittest.TestCase):
             self.assertEqual(watcher.watch(snow, None, "m", NOW), 1)
         self.assertEqual(snow.posted[0][0], "b")
 
+    def test_old_breaches_are_counted_not_alerted_and_alerts_are_capped(self):
+        old = sla("old", "z", 5000, breached="true", end="2018-10-17 06:00:00")
+        snow = FakeSnow([old] + [sla(f"s{i}", f"i{i}", 90) for i in range(watcher.MAX_ALERTS + 3)],
+                        {f"i{i}": NOTE for i in range(watcher.MAX_ALERTS + 3)})
+        with mock.patch("jarvis.watcher.notify_p1"):
+            self.assertEqual(watcher.watch(snow, None, "m", NOW), watcher.MAX_ALERTS)
+            self.assertEqual(watcher.watch(snow, None, "m", NOW), 3)  # the rest on the next pass
+        self.assertNotIn("z", [p[0] for p in snow.posted])
+        self.assertEqual(sum(r[5] for r in snow.db.snapshots[0]), 1)  # still counted as breached
+
     def test_without_database_does_nothing(self):
         snow = FakeSnow([sla("s1", "a", 90)])
         snow.db = None

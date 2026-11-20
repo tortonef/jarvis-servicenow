@@ -11,6 +11,10 @@ from jarvis.notify import notify_p1
 from jarvis.snow import SUGGESTION
 
 OPEN = "active=true^stateNOT IN6,7,8"  # Resolved incidents keep active=true until closed
+# Breaches older than this are counted on the dashboard but not alerted: old demo data or a first run would flood the
+# tickets and the LLM with notes nobody can act on any more.
+BREACH_WINDOW = datetime.timedelta(hours=24)
+MAX_ALERTS = 10  # per pass, to stay inside the LLM's rate limit; the rest are sent on the next passes
 
 
 def level(sla, now, warn):
@@ -93,16 +97,20 @@ def watch(snow, llm, model, now=None):
     warn = float(os.getenv("SLA_WARN_PERCENT", "75"))
     worst = {}  # incident -> its worst SLA: an incident counts once even with response and resolution SLAs
     alerts = []
+    recent = (now - BREACH_WINDOW).strftime("%Y-%m-%d %H:%M:%S")
     for sla in snow.active_slas():
         lvl = level(sla, now, warn)
         if lvl:
-            alerts.append((sla, lvl))
+            if lvl == "warning" or (sla.get("planned_end_time") or "") >= recent:
+                alerts.append((sla, lvl))
             inc = sla.get("task.sys_id")
             if inc not in worst or (lvl == "breached" and worst[inc][0] == "warning"):
                 worst[inc] = (lvl, sla)
     snapshot(snow, worst)
     sent = 0
     for sla, lvl in alerts:
+        if sent >= MAX_ALERTS:
+            break
         try:
             sent += alert(snow, llm, model, sla, lvl)
         except Exception as e:  # one ticket or an LLM rate limit must not stop the pass; retried next loop

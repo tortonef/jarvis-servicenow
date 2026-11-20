@@ -106,9 +106,11 @@ class Snow:
 
     def active_slas(self, limit=500):
         """Running SLAs of active incidents, with the incident's number, priority and group dot-walked in."""
-        return self.query("task_sla", "active=true^task.sys_class_name=incident^task.active=true^ORDERBYDESCpercentage",
+        rows = self.query("task_sla", "active=true^task.sys_class_name=incident^task.active=true^ORDERBYDESCpercentage",
                           ["sys_id", "sla.name", "percentage", "has_breached", "planned_end_time", "stage", "task.sys_id",
                            "task.number", "task.priority", "task.state", "task.assignment_group", "task.assignment_group.name"], limit)
+        # reference fields come back as {link, value}: keep the sys_id, as the stats API gives it
+        return [{k: v["value"] if isinstance(v, dict) else v for k, v in r.items()} for r in rows]
 
     def approval_for_proposal(self, incident_sys_id):
         """User name of the agent who approved the latest proposal, or None. ServiceNow's own clock orders the notes."""

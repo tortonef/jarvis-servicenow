@@ -22,9 +22,10 @@ It runs on free tiers: a ServiceNow Personal Developer Instance, Groq (GPT-OSS 1
 
 <table>
 <tr>
-<td width="33%"><a href="docs/features.md#procedures-diagnose-propose-approve-verify"><img src="docs/images/procedures.png" alt="Diagnose, propose, approve and verify an AD unlock"></a><br/><sub>Diagnose, approve, fix, verify</sub></td>
-<td width="33%"><a href="docs/features.md#support-processes"><img src="docs/images/self-service.png" alt="Self-service answer on the Service Portal"></a><br/><sub>Self-service on the portal</sub></td>
-<td width="33%"><a href="docs/features.md#quality-loop"><img src="docs/images/grafana.png" alt="Grafana quality dashboard"></a><br/><sub>What Jarvis saved this week</sub></td>
+<td width="25%"><a href="docs/features.md#procedures-diagnose-propose-approve-verify"><img src="docs/images/procedures.png" alt="Diagnose, propose, approve and verify an AD unlock"></a><br/><sub>Diagnose, approve, fix, verify</sub></td>
+<td width="25%"><a href="docs/features.md#support-processes"><img src="docs/images/self-service.png" alt="Self-service answer on the Service Portal"></a><br/><sub>Self-service on the portal</sub></td>
+<td width="25%"><a href="docs/features.md#watcher-backlog-and-sla"><img src="docs/images/operations.png" alt="Operations dashboard: backlog and SLA"></a><br/><sub>Backlog and SLA at a glance</sub></td>
+<td width="25%"><a href="docs/features.md#quality-loop"><img src="docs/images/grafana.png" alt="Grafana quality dashboard"></a><br/><sub>What Jarvis saved this week</sub></td>
 </tr>
 </table>
 

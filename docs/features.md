@@ -87,7 +87,11 @@ Every background loop (`DOCS_POLL_SECONDS`, 5 minutes by default) Jarvis reads t
 
 **Numbers over time.** Each pass stores the open backlog by priority, state and assignment group, with how many incidents are at risk (an SLA at or above `SLA_WARN_PERCENT`, 75 by default) or breached. The *Jarvis - Operations* dashboard in Grafana shows open, at-risk and breached incidents now, the backlog by priority over time, the backlog per group and the list of SLA alerts. The Monday report on Slack adds a *Backlog and SLA* line.
 
-**Alerts with a resolution suggestion.** When an SLA reaches the warning threshold, and again when it is breached, Jarvis posts a work note on the incident (`[Jarvis] SLA warning: P2 resolution at 82%, due 14:00 UTC`) with the probable cause and steps from its resolution suggestion, and sends the same to Slack. If the ticket has no Jarvis suggestion yet (opened before Jarvis, or its first answer failed), it writes the full suggestion first. Each SLA is alerted at most once per level; a paused SLA is not alerted. Run one pass by hand with `python -m jarvis.watcher`.
+<p align="center"><img src="images/operations.png" width="760" alt="Grafana Operations dashboard: open, at-risk and breached incidents, backlog by priority and group, SLA alerts"></p>
+
+**Alerts with a resolution suggestion.** When an SLA reaches the warning threshold, and again when it is breached, Jarvis posts a work note on the incident (`[Jarvis] SLA warning: P2 resolution at 82%, due 14:00 UTC`) with the probable cause and steps from its resolution suggestion, and sends the same to Slack. If the ticket has no Jarvis suggestion yet (opened before Jarvis, or its first answer failed), it writes the full suggestion first. Each SLA is alerted at most once per level; a paused SLA is not alerted. Breaches older than 24 hours (old demo data, or tickets already late before the first run) are counted on the dashboard but not alerted, and a pass sends at most 10 alerts so the LLM's rate limit holds. Run one pass by hand with `python -m jarvis.watcher`.
+
+<p align="center"><img src="images/sla-work-note.png" width="700" alt="SLA warning at 78% and breach at 100% on a P1 incident, each with the probable cause and steps from Jarvis's suggestion"></p>
 
 ## P1 alerts on Slack
 

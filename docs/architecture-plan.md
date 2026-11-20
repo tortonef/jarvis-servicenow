@@ -307,6 +307,7 @@ sequenceDiagram
 ### Phase 6 notes
 
 - **ServiceNow computes the SLAs.** Jarvis reads `task_sla` (percentage, breach flag, planned end) instead of keeping its own targets; a planned end in the past also counts as breached, because the percentage is refreshed by ServiceNow's SLA jobs and can lag. Incidents created before an SLA definition was active have no `task_sla` row and are only counted in the backlog.
+- **No flood on the first run.** The PDI ships with dozens of demo incidents whose SLAs breached years ago: breaches older than 24 hours are counted but not alerted, and a pass sends at most 10 alerts.
 - **Alerts, not escalation.** The Watcher writes work notes and Slack messages only; reassigning or raising priority stays with the team lead.
 - **Same loop, no new service.** It runs in the server's background loop next to the knowledge sync; the `sla_alert` table keeps a restart from alerting twice.
 
