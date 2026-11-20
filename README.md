@@ -6,6 +6,10 @@ Jarvis reads every new ServiceNow incident, finds the answer in the knowledge ba
 
 It runs on free tiers: a ServiceNow Personal Developer Instance, Groq (GPT-OSS 120B) and local embeddings.
 
+<a href="https://tortonef.github.io/jarvis-servicenow/"><img src="docs/images/deck-preview.gif" alt="The Jarvis story in 15 slides: click to open the interactive deck"></a>
+
+**[▶ Open the interactive slides](https://tortonef.github.io/jarvis-servicenow/)** (arrow keys or swipe, F for full screen) · [PDF](docs/deck.pdf) · [Source](docs/deck.md)
+
 ![Jarvis work note on a ServiceNow incident](docs/images/work-note-closeup.png)
 
 *A real ticket: Jarvis suggests the probable cause and the steps, citing the KB article and the resolved ticket it used.*
